@@ -2,309 +2,575 @@
 
 import * as React from 'react';
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  CardFooter,
-} from '@/components/ui/card';
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from 'recharts';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Lightbulb, TrendingUp, Percent, Wallet, Search, Home, Banknote, Map, Users } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
-import { analyzeRealEstate, type RealEstateAnalysisOutput } from '@/ai/flows/analyze-real-estate-flow';
+import {
+  Search,
+  TrendingUp,
+  ShieldAlert,
+  Map,
+  Users,
+  Lightbulb,
+  AlertCircle,
+  CheckCircle2,
+  XCircle,
+  Info,
+} from 'lucide-react';
+import {
+  analyzeRealEstate,
+  type RealEstateAnalysisOutput,
+} from '@/ai/flows/analyze-real-estate-flow';
+import { cn } from '@/lib/utils';
 
-type Results = {
-  jeonseRatio: number;
-  ltv: number;
-  netYield: number;
+// ── 투자 등급 색상 ─────────────────────────────────────────────────────
+const GRADE_CONFIG: Record<string, { bg: string; text: string; border: string; label: string }> = {
+  A: { bg: 'bg-emerald-500/10', text: 'text-emerald-400', border: 'border-emerald-500/30', label: '매수 적극' },
+  B: { bg: 'bg-blue-500/10', text: 'text-blue-400', border: 'border-blue-500/30', label: '매수 검토' },
+  C: { bg: 'bg-amber-500/10', text: 'text-amber-400', border: 'border-amber-500/30', label: '관망' },
+  D: { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/30', label: '매수 보류' },
 };
 
-export default function RealEstatePage() {
-  // State for AI Analyzer
-  const [addressQuery, setAddressQuery] = React.useState('');
-  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
-  const [analysisResult, setAnalysisResult] = React.useState<RealEstateAnalysisOutput | null>(null);
-  const [analysisError, setAnalysisError] = React.useState('');
+const RISK_CONFIG: Record<string, { color: string; bg: string }> = {
+  낮음: { color: '#10b981', bg: 'bg-emerald-500/10' },
+  보통: { color: '#f59e0b', bg: 'bg-amber-500/10' },
+  높음: { color: '#ef4444', bg: 'bg-red-500/10' },
+};
 
-  // State for existing calculator
-  const [propertyPrice, setPropertyPrice] = React.useState('');
-  const [deposit, setDeposit] = React.useState('');
-  const [monthlyRent, setMonthlyRent] = React.useState('0');
-  const [loanAmount, setLoanAmount] = React.useState('');
-  const [loanRate, setLoanRate] = React.useState('');
-  const [results, setResults] = React.useState<Results | null>(null);
-  const [aiComment, setAiComment] = React.useState('');
+// ── 원형 게이지 컴포넌트 ──────────────────────────────────────────────
+function CircularGauge({
+  value,
+  max,
+  label,
+  unit = '%',
+  color,
+  size = 96,
+}: {
+  value: number;
+  max: number;
+  label: string;
+  unit?: string;
+  color: string;
+  size?: number;
+}) {
+  const clamped = Math.min(Math.max(value, 0), max);
+  const pct = clamped / max;
+  const r = 36;
+  const cx = 48;
+  const cy = 48;
+  const circ = 2 * Math.PI * r;
+  const dashOffset = circ * (1 - pct);
+
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <svg width={size} height={size} viewBox="0 0 96 96">
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="#334155" strokeWidth="8" />
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth="8"
+          strokeDasharray={circ}
+          strokeDashoffset={dashOffset}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${cx} ${cy})`}
+          style={{ transition: 'stroke-dashoffset 0.8s ease' }}
+        />
+        <text x={cx} y={cy - 4} textAnchor="middle" fontSize="14" fontWeight="700" fill="white">
+          {value.toFixed(1)}
+        </text>
+        <text x={cx} y={cy + 10} textAnchor="middle" fontSize="9" fill="#94a3b8">
+          {unit}
+        </text>
+      </svg>
+      <span className="text-xs text-muted-foreground text-center leading-tight">{label}</span>
+    </div>
+  );
+}
+
+// ── 큰 숫자 카드 ─────────────────────────────────────────────────────
+function StatCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+  return (
+    <div className="rounded-xl border border-border/50 bg-card/60 p-4 flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={cn('text-2xl font-black tracking-tight', accent ?? 'text-foreground')}>{value}</span>
+      {sub && <span className="text-xs text-muted-foreground">{sub}</span>}
+    </div>
+  );
+}
+
+// ── 커스텀 툴팁 ───────────────────────────────────────────────────────
+function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border border-border bg-card p-3 text-xs shadow-xl">
+      <p className="font-semibold mb-1 text-foreground">{label}</p>
+      {payload.map((p) => (
+        <p key={p.name} style={{ color: p.color }}>
+          {p.name}: <span className="font-bold">{p.value.toFixed(2)}억</span>
+        </p>
+      ))}
+    </div>
+  );
+}
+
+// ── 메인 페이지 ───────────────────────────────────────────────────────
+export default function RealEstatePage() {
+  const [query, setQuery] = React.useState('');
+  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [result, setResult] = React.useState<RealEstateAnalysisOutput | null>(null);
   const [error, setError] = React.useState('');
 
-  const handleAnalyzeAddress = async () => {
-    if (!addressQuery.trim()) {
-      setAnalysisError('분석할 아파트 이름이나 주소를 입력해주세요.');
+  const handleAnalyze = async () => {
+    if (!query.trim()) {
+      setError('분석할 아파트 이름이나 주소를 입력해주세요.');
       return;
     }
-    setAnalysisError('');
-    setAnalysisResult(null);
+    setError('');
+    setResult(null);
     setIsAnalyzing(true);
     try {
-      const result = await analyzeRealEstate(addressQuery);
-      setAnalysisResult(result);
+      const data = await analyzeRealEstate(query);
+      setResult(data);
     } catch (e) {
       console.error(e);
-      setAnalysisError('AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+      setError('AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const handleCalculate = () => {
-    setError('');
-    setResults(null);
-    setAiComment('');
-
-    const price = parseFloat(propertyPrice);
-    const dep = parseFloat(deposit);
-    const rent = parseFloat(monthlyRent);
-    const loan = parseFloat(loanAmount);
-    const rate = parseFloat(loanRate);
-
-    if (isNaN(price) || isNaN(dep) || isNaN(rent) || isNaN(loan) || isNaN(rate)) {
-      setError('모든 입력 필드에 유효한 숫자를 입력해주세요.');
-      return;
-    }
-
-    if (price <= 0) {
-      setError('매매가는 0보다 커야 합니다.');
-      return;
-    }
-
-    const jeonseRatio = (dep / price) * 100;
-    const ltv = (loan / price) * 100;
-
-    const annualRent = rent * 12;
-    const annualInterest = loan * (rate / 100);
-    const investment = price - loan - dep;
-
-    let netYield = 0;
-    if (investment > 0) {
-      netYield = ((annualRent - annualInterest) / investment) * 100;
-    } else {
-       // If investment is zero or negative, yield is not meaningfully calculable in percentage.
-       // We can represent cash flow directly. For now, we'll show infinity or a message.
-       netYield = Infinity;
-    }
-
-    setResults({
-      jeonseRatio,
-      ltv,
-      netYield,
-    });
-    
-    // AI Judgment
-    if (ltv > 70) {
-      setAiComment("LTV(담보인정비율)가 70%를 초과하여 위험도가 매우 높습니다. 대출 규모를 재검토하는 것이 시급합니다.");
-    } else if (jeonseRatio > 80) {
-      setAiComment("전세가율이 80%를 초과하여 역전세 리스크가 높습니다. 향후 전세가 하락 시 보증금 반환에 어려움이 있을 수 있습니다.");
-    } else if (ltv <= 50 && jeonseRatio >= 60 && jeonseRatio <= 75) {
-      setAiComment("LTV가 50% 이하로 안정적이며, 전세가율도 60-75% 사이의 적정 구간에 있어 투자 안전성이 비교적 높은 편입니다.");
-    } else if (ltv <= 50) {
-      setAiComment("LTV가 50% 이하로 안정적입니다. 다만, 전세가율과 임대수익률을 함께 고려하여 최종 투자 결정을 내리는 것이 좋습니다.");
-    } else {
-      setAiComment("현재 지표만으로는 투자 판단이 복합적입니다. 잠재적 리스크와 기대 수익을 면밀히 분석하고 시장 상황을 추가로 고려하여 신중하게 결정해야 합니다.");
-    }
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') handleAnalyze();
   };
 
-  const formatPercent = (value: number) => {
-    if (!isFinite(value)) return "N/A";
-    return `${value.toFixed(2)}%`;
-  }
+  const gradeConf = result ? (GRADE_CONFIG[result.overallConclusion.investmentGrade] ?? GRADE_CONFIG['C']) : null;
+  const riskConf = result ? (RISK_CONFIG[result.riskAssessment.overallRisk] ?? RISK_CONFIG['보통']) : null;
 
   return (
-    <div className="p-4 md:p-8 space-y-8">
+    <div className="p-4 md:p-8 space-y-8 max-w-6xl mx-auto">
+      {/* ── 헤더 ── */}
       <header>
-        <h1 className="text-3xl font-bold tracking-tight">부동산 투자 분석</h1>
-        <p className="text-muted-foreground">AI로 신규 투자 타당성을 간편하게 분석하세요.</p>
+        <h1 className="text-3xl font-bold tracking-tight">부동산 AI 타당성 분석</h1>
+        <p className="text-muted-foreground mt-1">아파트 이름 또는 주소를 입력하면 AI가 투자 타당성을 분석합니다.</p>
       </header>
 
-      {/* AI Analyzer Section */}
+      {/* ── 검색창 ── */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Search />
-            AI 기반 주소 검색 분석기
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Search className="h-4 w-4" />
+            AI 부동산 분석기
           </CardTitle>
-          <CardDescription>분석하고 싶은 아파트 이름이나 주소를 입력하세요.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent>
           <div className="flex flex-col sm:flex-row gap-2">
             <Input
-              id="addressQuery"
-              placeholder="예: 반포자이, 서울시 강남구 역삼동 123"
-              value={addressQuery}
-              onChange={(e) => setAddressQuery(e.target.value)}
+              placeholder="예: 반포자이, 안양시 아르테자이, 서울시 마포구 래미안 웰스트림"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
               disabled={isAnalyzing}
+              className="flex-1"
             />
-            <Button onClick={handleAnalyzeAddress} disabled={isAnalyzing} className="sm:w-auto w-full">
-              {isAnalyzing ? <Spinner className="mr-2 h-4 w-4" /> : <Lightbulb className="mr-2 h-4 w-4" />}
-              AI 지역 분석하기
+            <Button onClick={handleAnalyze} disabled={isAnalyzing} className="sm:w-auto">
+              {isAnalyzing ? (
+                <Spinner className="mr-2 h-4 w-4" />
+              ) : (
+                <Lightbulb className="mr-2 h-4 w-4" />
+              )}
+              {isAnalyzing ? '분석 중...' : 'AI 분석 시작'}
             </Button>
           </div>
         </CardContent>
       </Card>
-      
+
+      {/* ── 로딩 ── */}
       {isAnalyzing && (
-        <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed p-8 text-center">
-            <Spinner className="h-8 w-8 text-primary" />
-            <p className="text-muted-foreground">AI가 수만 건의 부동산 데이터를 분석하고 있습니다...</p>
-        </div>
-      )}
-
-      {analysisError && (
-        <Alert variant="destructive">
-          <AlertTitle>분석 오류</AlertTitle>
-          <AlertDescription>{analysisError}</AlertDescription>
-        </Alert>
-      )}
-
-      {analysisResult && (
-        <div className="space-y-6">
-          <h2 className="text-2xl font-bold tracking-tight">{addressQuery} 분석 결과</h2>
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2"><Home /> 현재 시세</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-lg font-bold">매매: {analysisResult.marketPrice.sale}</div>
-                <p className="text-xs text-muted-foreground">전세: {analysisResult.marketPrice.jeonse}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2"><Banknote /> 최소 보유 현금</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-lg font-bold">{analysisResult.minCash.amount}</div>
-                <p className="text-xs text-muted-foreground">{analysisResult.minCash.description}</p>
-              </CardContent>
-            </Card>
-            <Card className="md:col-span-2 lg:col-span-1">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2"><Map /> 주변 상권 및 인프라</CardTitle>
-              </CardHeader>
-              <CardContent className="text-xs space-y-1 text-muted-foreground">
-                <p><span className="font-semibold text-foreground">교통:</span> {analysisResult.infrastructure.transportation}</p>
-                <p><span className="font-semibold text-foreground">쇼핑:</span> {analysisResult.infrastructure.shopping}</p>
-                <p><span className="font-semibold text-foreground">교육:</span> {analysisResult.infrastructure.education}</p>
-                <p><span className="font-semibold text-foreground">기타:</span> {analysisResult.infrastructure.amenities}</p>
-              </CardContent>
-            </Card>
-            <Card className="lg:col-span-2">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp /> 향후 전망</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm font-semibold">{analysisResult.prospects.development}</p>
-                <p className="text-xs text-muted-foreground mt-1">{analysisResult.prospects.general}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2"><Users /> 거주자 특징</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-sm font-semibold">주 연령대: {analysisResult.residents.ageGroup}</div>
-                <p className="text-xs text-muted-foreground">가족 형태: {analysisResult.residents.familyType}</p>
-                <p className="text-xs text-muted-foreground mt-2">{analysisResult.residents.summary}</p>
-              </CardContent>
-            </Card>
+        <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-primary/30 p-12 text-center">
+          <Spinner className="h-10 w-10 text-primary" />
+          <div>
+            <p className="font-semibold">AI가 분석 중입니다</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              국토부 실거래가 데이터와 지역 시세를 기반으로 분석하고 있습니다...
+            </p>
           </div>
         </div>
       )}
-      
-      <Separator className="my-8" />
 
-      {/* Existing Calculator Section */}
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle>수동 투자 분석기</CardTitle>
-            <CardDescription>직접 정보를 입력하여 분석합니다.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="propertyPrice">매매가 (원)</Label>
-              <Input id="propertyPrice" type="number" placeholder="예: 1000000000" value={propertyPrice} onChange={(e) => setPropertyPrice(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="deposit">보증금 / 전세 (원)</Label>
-              <Input id="deposit" type="number" placeholder="예: 500000000" value={deposit} onChange={(e) => setDeposit(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="monthlyRent">월세 (원)</Label>
-              <Input id="monthlyRent" type="number" placeholder="전세의 경우 0 입력" value={monthlyRent} onChange={(e) => setMonthlyRent(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="loanAmount">대출 예상 금액 (원)</Label>
-              <Input id="loanAmount" type="number" placeholder="예: 400000000" value={loanAmount} onChange={(e) => setLoanAmount(e.target.value)} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="loanRate">대출 금리 (연, %)</Label>
-              <Input id="loanRate" type="number" placeholder="예: 4.5" value={loanRate} onChange={(e) => setLoanRate(e.target.value)} />
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button onClick={handleCalculate} className="w-full">계산하기</Button>
-          </CardFooter>
-        </Card>
+      {/* ── 에러 ── */}
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>분석 오류</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
-        {error && (
-            <Alert variant="destructive" className="lg:col-span-2">
-                <AlertTitle>오류</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
+      {/* ══════════════════════════════════════════════════════════════════
+          분석 결과 대시보드
+      ══════════════════════════════════════════════════════════════════ */}
+      {result && gradeConf && riskConf && (
+        <div className="space-y-6">
+          {/* ── 시뮬레이션 뱃지 + 데이터 출처 ── */}
+          <div className="flex flex-wrap items-center gap-2">
+            {result.isSimulation ? (
+              <Badge
+                variant="outline"
+                className="border-amber-500/60 text-amber-400 bg-amber-500/10 text-sm px-3 py-1 font-semibold"
+              >
+                ⚠ AI 추정 시뮬레이션 결과
+              </Badge>
+            ) : (
+              <Badge
+                variant="outline"
+                className="border-emerald-500/60 text-emerald-400 bg-emerald-500/10 text-sm px-3 py-1 font-semibold"
+              >
+                ✓ 실거래 데이터 기반
+              </Badge>
+            )}
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Info className="h-3 w-3" />
+              {result.dataSource}
+            </span>
+          </div>
+
+          {/* ── 종합 결론 헤더 카드 ── */}
+          <Card className={cn('border', gradeConf.border, gradeConf.bg)}>
+            <CardContent className="pt-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">종합 투자 등급</p>
+                  <div className="flex items-baseline gap-3">
+                    <span className={cn('text-7xl font-black', gradeConf.text)}>
+                      {result.overallConclusion.investmentGrade}
+                    </span>
+                    <span className={cn('text-xl font-bold', gradeConf.text)}>
+                      {result.overallConclusion.recommendation}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-3 flex-1 sm:pl-8 min-w-0">
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1.5">핵심 장점</p>
+                    <ul className="space-y-1">
+                      {result.overallConclusion.strengths.map((s, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-xs text-foreground">
+                          <CheckCircle2 className="h-3 w-3 text-emerald-400 mt-0.5 shrink-0" />
+                          {s}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground mb-1.5">주의사항</p>
+                    <ul className="space-y-1">
+                      {result.overallConclusion.weaknesses.map((w, i) => (
+                        <li key={i} className="flex items-start gap-1.5 text-xs text-foreground">
+                          <XCircle className="h-3 w-3 text-red-400 mt-0.5 shrink-0" />
+                          {w}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── 핵심 시세 지표 ── */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+            <StatCard
+              label="현재 매매가"
+              value={`${result.salePrice.toFixed(1)}억`}
+              sub={result.marketPrice.sale}
+              accent="text-primary"
+            />
+            <StatCard
+              label="현재 전세가"
+              value={`${result.jeonsePrice.toFixed(1)}억`}
+              sub={result.marketPrice.jeonse}
+            />
+            <StatCard
+              label="최소 보유 현금"
+              value={`${result.minCashNum.toFixed(1)}억`}
+              sub="취득세 포함"
+              accent="text-amber-400"
+            />
+            <StatCard
+              label="임대 수익률"
+              value={`${result.rentalYieldNum.toFixed(1)}%`}
+              sub="연간 (월세 기준)"
+            />
+            <StatCard
+              label="LTV 한도"
+              value={`${result.ltvNum.toFixed(0)}%`}
+              sub="지역 규제 반영"
+            />
+            <StatCard
+              label="전세가율"
+              value={`${result.jeonseRatioNum.toFixed(1)}%`}
+              sub={result.jeonseRatioNum >= 70 ? '⚠ 갭투자 위험' : result.jeonseRatioNum >= 50 ? '보통' : '안전'}
+              accent={
+                result.jeonseRatioNum >= 70
+                  ? 'text-red-400'
+                  : result.jeonseRatioNum >= 50
+                  ? 'text-amber-400'
+                  : 'text-emerald-400'
+              }
+            />
+          </div>
+
+          {/* ── 시계열 차트 ── */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-sm">
+                <TrendingUp className="h-4 w-4 text-primary" />
+                최근 3년 시세 트렌드 (2022~2024)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={result.priceHistory} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis
+                    dataKey="period"
+                    tick={{ fill: '#64748b', fontSize: 11 }}
+                    axisLine={{ stroke: '#334155' }}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: '#64748b', fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => `${v}억`}
+                  />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend
+                    wrapperStyle={{ fontSize: '12px', paddingTop: '12px' }}
+                    formatter={(value) => (value === 'sale' ? '매매가 (억)' : '전세가 (억)')}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="sale"
+                    stroke="#818cf8"
+                    strokeWidth={2.5}
+                    dot={{ r: 3, fill: '#818cf8', strokeWidth: 0 }}
+                    activeDot={{ r: 5 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="jeonse"
+                    stroke="#34d399"
+                    strokeWidth={2.5}
+                    dot={{ r: 3, fill: '#34d399', strokeWidth: 0 }}
+                    activeDot={{ r: 5 }}
+                    strokeDasharray="5 3"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          {/* ── 원형 게이지 3종 ── */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">핵심 투자 지표</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex justify-around flex-wrap gap-6 py-2">
+                <CircularGauge
+                  value={result.jeonseRatioNum}
+                  max={100}
+                  label="전세가율"
+                  color={result.jeonseRatioNum >= 70 ? '#ef4444' : result.jeonseRatioNum >= 50 ? '#f59e0b' : '#10b981'}
+                  size={110}
+                />
+                <CircularGauge
+                  value={result.ltvNum}
+                  max={100}
+                  label="적용 LTV"
+                  color="#818cf8"
+                  size={110}
+                />
+                <CircularGauge
+                  value={result.rentalYieldNum}
+                  max={10}
+                  label="임대수익률"
+                  color="#34d399"
+                  size={110}
+                />
+                <CircularGauge
+                  value={result.livabilityScoreNum}
+                  max={10}
+                  label="입지 점수"
+                  unit="/10"
+                  color="#fb923c"
+                  size={110}
+                />
+              </div>
+              <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-muted-foreground text-center">
+                <p>{result.investmentFeasibility.ltv}</p>
+                <p>{result.marketPrice.jeonseRatio}</p>
+                <p>{result.investmentFeasibility.rentalYield}</p>
+                <p>{result.locationAnalysis.livabilityScore}</p>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* ── 리스크 · 입지 · 미래 · 거주자 ── */}
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* 리스크 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2">
+                    <ShieldAlert className="h-4 w-4" />
+                    리스크 분석
+                  </span>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      'text-xs',
+                      result.riskAssessment.overallRisk === '낮음'
+                        ? 'border-emerald-500/60 text-emerald-400'
+                        : result.riskAssessment.overallRisk === '보통'
+                        ? 'border-amber-500/60 text-amber-400'
+                        : 'border-red-500/60 text-red-400'
+                    )}
+                  >
+                    종합: {result.riskAssessment.overallRisk}
+                  </Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2.5 text-xs">
+                <RiskRow label="시장 리스크" text={result.riskAssessment.marketRisk} />
+                <RiskRow label="규제 리스크" text={result.riskAssessment.regulatoryRisk} />
+                <RiskRow label="금리 리스크" text={result.riskAssessment.interestRateRisk} />
+              </CardContent>
+            </Card>
+
+            {/* 입지 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <Map className="h-4 w-4" />
+                  입지 분석
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2.5 text-xs">
+                <InfoRow label="교통" text={result.locationAnalysis.transportation} />
+                <InfoRow label="교육" text={result.locationAnalysis.education} />
+                <InfoRow label="쇼핑" text={result.locationAnalysis.shopping} />
+                <InfoRow label="편의시설" text={result.locationAnalysis.amenities} />
+              </CardContent>
+            </Card>
+
+            {/* 미래 가치 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <TrendingUp className="h-4 w-4" />
+                  미래 가치 전망
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2.5 text-xs">
+                <InfoRow label="개발 호재" text={result.futureProspects.developmentPlan} />
+                <InfoRow label="인구 동향" text={result.futureProspects.populationTrend} />
+                <InfoRow label="정책 영향" text={result.futureProspects.policyImpact} />
+                <InfoRow label="투자 전망" text={result.futureProspects.investmentOutlook} />
+              </CardContent>
+            </Card>
+
+            {/* 거주자 특징 */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-sm">
+                  <Users className="h-4 w-4" />
+                  거주자 특징
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2.5 text-xs">
+                <InfoRow label="주 연령대" text={result.residents.ageGroup} />
+                <InfoRow label="가족 형태" text={result.residents.familyType} />
+                <p className="text-muted-foreground leading-relaxed pt-1">{result.residents.summary}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* 투자 타당성 상세 */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">투자 타당성 상세 분석</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-xs">
+              <DetailItem label="최소 보유 현금" value={result.investmentFeasibility.minCashRequired} />
+              <DetailItem label="대출 한도 (LTV)" value={result.investmentFeasibility.ltv} />
+              <DetailItem label="필요 소득 (DSR)" value={result.investmentFeasibility.dsr} />
+              <DetailItem label="임대수익률" value={result.investmentFeasibility.rentalYield} />
+              <DetailItem label="손익분기점" value={result.investmentFeasibility.breakEvenAnalysis} className="sm:col-span-2 lg:col-span-2" />
+            </CardContent>
+          </Card>
+
+          {/* 시뮬레이션 안내 */}
+          {result.isSimulation && (
+            <Alert className="border-amber-500/30 bg-amber-500/5">
+              <AlertCircle className="h-4 w-4 text-amber-400" />
+              <AlertTitle className="text-amber-400">AI 추정 시뮬레이션 안내</AlertTitle>
+              <AlertDescription className="text-muted-foreground text-xs">
+                본 분석 결과는 해당 아파트의 정확한 실거래 데이터베이스 대신, {result.dataSource}를 기반으로
+                생성된 시뮬레이션입니다. 실제 투자 결정 시에는 국토교통부 실거래가 공개시스템(rt.molit.go.kr)에서
+                직접 데이터를 확인하시기 바랍니다.
+              </AlertDescription>
             </Alert>
-        )}
+          )}
 
-        {results && (
-            <div className="lg:col-span-2 space-y-6">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>핵심 투자 지표</CardTitle>
-                    </CardHeader>
-                    <CardContent className="grid gap-4 sm:grid-cols-3">
-                        <div className="flex flex-col space-y-1.5 rounded-lg bg-muted/50 p-4">
-                            <Label className="text-sm text-muted-foreground flex items-center gap-1"><Percent /> 전세가율</Label>
-                            <div className="text-2xl font-bold">{formatPercent(results.jeonseRatio)}</div>
-                        </div>
-                        <div className="flex flex-col space-y-1.5 rounded-lg bg-muted/50 p-4">
-                            <Label className="text-sm text-muted-foreground flex items-center gap-1"><Wallet /> LTV (담보인정비율)</Label>
-                            <div className="text-2xl font-bold">{formatPercent(results.ltv)}</div>
-                        </div>
-                        <div className="flex flex-col space-y-1.5 rounded-lg bg-muted/50 p-4">
-                            <Label className="text-sm text-muted-foreground flex items-center gap-1"><TrendingUp /> 순임대수익률</Label>
-                            <div className="text-2xl font-bold">{formatPercent(results.netYield)}</div>
-                        </div>
-                    </CardContent>
-                </Card>
+          <Separator />
+        </div>
+      )}
+    </div>
+  );
+}
 
-                {aiComment && (
-                    <Card className="bg-primary/10 border-primary/20">
-                         <CardHeader>
-                            <CardTitle className="flex items-center gap-2 text-primary/90">
-                                <Lightbulb /> AI 투자 판단
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <p className="text-primary/90">{aiComment}</p>
-                        </CardContent>
-                    </Card>
-                )}
-            </div>
-        )}
-      </div>
+// ── 헬퍼 컴포넌트 ─────────────────────────────────────────────────────
+function RiskRow({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="flex gap-2">
+      <span className="shrink-0 font-semibold text-foreground w-20">{label}</span>
+      <span className="text-muted-foreground">{text}</span>
+    </div>
+  );
+}
+
+function InfoRow({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="flex gap-2">
+      <span className="shrink-0 font-semibold text-foreground w-14">{label}</span>
+      <span className="text-muted-foreground">{text}</span>
+    </div>
+  );
+}
+
+function DetailItem({ label, value, className }: { label: string; value: string; className?: string }) {
+  return (
+    <div className={cn('rounded-lg bg-muted/40 p-3', className)}>
+      <p className="text-muted-foreground mb-0.5">{label}</p>
+      <p className="text-foreground font-medium">{value}</p>
     </div>
   );
 }
