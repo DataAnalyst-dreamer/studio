@@ -3,17 +3,17 @@
  * @fileOverview A real estate analysis AI agent.
  *
  * - analyzeRealEstate - A function that handles the real estate analysis process.
- * - RealEstateAnalysisInputSchema - The input schema for the analyzeRealEstate function.
- * - RealEstateAnalysisOutputSchema - The output schema for the analyzeRealEstate function.
+ * - RealEstateAnalysisInput - The input type for the analyzeRealestate function.
+ * - RealEstateAnalysisOutput - The return type for the analyzeRealestate function.
  */
 
 import { ai } from '@/ai/genkit';
 import { z } from 'zod';
 
-export const RealEstateAnalysisInputSchema = z.string().describe("The address or name of the apartment to analyze.");
+const RealEstateAnalysisInputSchema = z.string().describe("The address or name of the apartment to analyze.");
 export type RealEstateAnalysisInput = z.infer<typeof RealEstateAnalysisInputSchema>;
 
-export const RealEstateAnalysisOutputSchema = z.object({
+const RealEstateAnalysisOutputSchema = z.object({
   marketPrice: z.object({
     sale: z.string().describe("예상 매매가 (원 단위, 범위로 표시 가능 예: 10억 ~ 11억)"),
     jeonse: z.string().describe("예상 전세가 (원 단위, 범위로 표시 가능 예: 7억 ~ 7.5억)"),
