@@ -1,17 +1,22 @@
-export type Message = {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-};
+export interface Asset {
+  category: string;
+  items: {
+    name: string;
+    amount: number;
+  }[];
+}
 
-export type Conversation = {
-  id: string;
-  title: string;
-  messages: Message[];
-  createdAt: number;
-};
+export interface Liability {
+  name: string;
+  amount: number;
+}
 
-export type Settings = {
-  aiTone: 'formal' | 'casual' | 'witty';
-  responseVerbosity: 'concise' | 'detailed' | 'balanced';
-};
+export interface Expense {
+    category: '필수 지출' | '선택적 지출' | '저축 및 투자';
+    amount: number;
+    icon: React.ComponentType<{ className?: string }>;
+}
+
+export interface BudgetItem extends Expense {
+    fill: string;
+}
