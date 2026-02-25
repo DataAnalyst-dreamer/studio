@@ -41,13 +41,8 @@ import {
   totalIncome,
 } from '@/lib/dashboard-data';
 import type { BudgetItem } from '@/lib/types';
+import { formatCurrency } from '@/lib/format';
 
-const formatCurrency = (value: number) => {
-  return new Intl.NumberFormat('ko-KR', {
-    style: 'currency',
-    currency: 'KRW',
-  }).format(value);
-};
 
 export default function DashboardPage() {
   const totalOutgoing = expenses.reduce((acc, cat) => acc + cat.items.reduce((itemAcc, item) => itemAcc + item.amount, 0), 0) + savings.amount;

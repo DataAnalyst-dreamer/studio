@@ -1,6 +1,7 @@
 import type {Metadata} from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
+import BottomNav from '@/components/BottomNav';
 
 export const metadata: Metadata = {
   title: '자산 관리 대시보드',
@@ -21,7 +22,10 @@ export default function RootLayout({
         <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro&display=swap" rel="stylesheet" />
       </head>
       <body className="font-body antialiased bg-background">
-        {children}
+        <main className="pb-24">
+          {children}
+        </main>
+        <BottomNav />
         <Toaster />
       </body>
     </html>
