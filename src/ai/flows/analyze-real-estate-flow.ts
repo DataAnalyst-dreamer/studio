@@ -60,7 +60,7 @@ Provide all monetary values in Korean Won (KRW). Be specific and use realistic d
 5.  **거주자 특징 (Resident Characteristics)**: Describe the primary resident demographic, including main age groups and family types (e.g., dual-income couples, families with children).
 
 Do not include any text outside of the JSON object.`,
-    model: 'googleai/gemini-pro',
+    model: 'googleai/gemini-1.5-flash',
     config: {
         temperature: 0.3,
     }
