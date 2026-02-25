@@ -13,7 +13,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Lightbulb, TrendingUp, Percent, Wallet } from 'lucide-react';
+import { Lightbulb, TrendingUp, Percent, Wallet, Search, Home, Banknote, Map, Users } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
+import { Spinner } from '@/components/ui/spinner';
+import { analyzeRealEstate, type RealEstateAnalysisOutput } from '@/ai/flows/analyze-real-estate-flow';
 
 type Results = {
   jeonseRatio: number;
@@ -22,15 +25,40 @@ type Results = {
 };
 
 export default function RealEstatePage() {
+  // State for AI Analyzer
+  const [addressQuery, setAddressQuery] = React.useState('');
+  const [isAnalyzing, setIsAnalyzing] = React.useState(false);
+  const [analysisResult, setAnalysisResult] = React.useState<RealEstateAnalysisOutput | null>(null);
+  const [analysisError, setAnalysisError] = React.useState('');
+
+  // State for existing calculator
   const [propertyPrice, setPropertyPrice] = React.useState('');
   const [deposit, setDeposit] = React.useState('');
   const [monthlyRent, setMonthlyRent] = React.useState('0');
   const [loanAmount, setLoanAmount] = React.useState('');
   const [loanRate, setLoanRate] = React.useState('');
-
   const [results, setResults] = React.useState<Results | null>(null);
   const [aiComment, setAiComment] = React.useState('');
   const [error, setError] = React.useState('');
+
+  const handleAnalyzeAddress = async () => {
+    if (!addressQuery.trim()) {
+      setAnalysisError('분석할 아파트 이름이나 주소를 입력해주세요.');
+      return;
+    }
+    setAnalysisError('');
+    setAnalysisResult(null);
+    setIsAnalyzing(true);
+    try {
+      const result = await analyzeRealEstate(addressQuery);
+      setAnalysisResult(result);
+    } catch (e) {
+      console.error(e);
+      setAnalysisError('AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const handleCalculate = () => {
     setError('');
@@ -98,14 +126,113 @@ export default function RealEstatePage() {
     <div className="p-4 md:p-8 space-y-8">
       <header>
         <h1 className="text-3xl font-bold tracking-tight">부동산 투자 분석</h1>
-        <p className="text-muted-foreground">신규 투자 타당성을 간편하게 분석하세요.</p>
+        <p className="text-muted-foreground">AI로 신규 투자 타당성을 간편하게 분석하세요.</p>
       </header>
 
+      {/* AI Analyzer Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Search />
+            AI 기반 주소 검색 분석기
+          </CardTitle>
+          <CardDescription>분석하고 싶은 아파트 이름이나 주소를 입력하세요.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Input
+              id="addressQuery"
+              placeholder="예: 반포자이, 서울시 강남구 역삼동 123"
+              value={addressQuery}
+              onChange={(e) => setAddressQuery(e.target.value)}
+              disabled={isAnalyzing}
+            />
+            <Button onClick={handleAnalyzeAddress} disabled={isAnalyzing} className="sm:w-auto w-full">
+              {isAnalyzing ? <Spinner className="mr-2 h-4 w-4" /> : <Lightbulb className="mr-2 h-4 w-4" />}
+              AI 지역 분석하기
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+      
+      {isAnalyzing && (
+        <div className="flex flex-col items-center justify-center gap-4 rounded-lg border border-dashed p-8 text-center">
+            <Spinner className="h-8 w-8 text-primary" />
+            <p className="text-muted-foreground">AI가 수만 건의 부동산 데이터를 분석하고 있습니다...</p>
+        </div>
+      )}
+
+      {analysisError && (
+        <Alert variant="destructive">
+          <AlertTitle>분석 오류</AlertTitle>
+          <AlertDescription>{analysisError}</AlertDescription>
+        </Alert>
+      )}
+
+      {analysisResult && (
+        <div className="space-y-6">
+          <h2 className="text-2xl font-bold tracking-tight">{addressQuery} 분석 결과</h2>
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2"><Home /> 현재 시세</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-lg font-bold">매매: {analysisResult.marketPrice.sale}</div>
+                <p className="text-xs text-muted-foreground">전세: {analysisResult.marketPrice.jeonse}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2"><Banknote /> 최소 보유 현금</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-lg font-bold">{analysisResult.minCash.amount}</div>
+                <p className="text-xs text-muted-foreground">{analysisResult.minCash.description}</p>
+              </CardContent>
+            </Card>
+            <Card className="md:col-span-2 lg:col-span-1">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2"><Map /> 주변 상권 및 인프라</CardTitle>
+              </CardHeader>
+              <CardContent className="text-xs space-y-1 text-muted-foreground">
+                <p><span className="font-semibold text-foreground">교통:</span> {analysisResult.infrastructure.transportation}</p>
+                <p><span className="font-semibold text-foreground">쇼핑:</span> {analysisResult.infrastructure.shopping}</p>
+                <p><span className="font-semibold text-foreground">교육:</span> {analysisResult.infrastructure.education}</p>
+                <p><span className="font-semibold text-foreground">기타:</span> {analysisResult.infrastructure.amenities}</p>
+              </CardContent>
+            </Card>
+            <Card className="lg:col-span-2">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2"><TrendingUp /> 향후 전망</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm font-semibold">{analysisResult.prospects.development}</p>
+                <p className="text-xs text-muted-foreground mt-1">{analysisResult.prospects.general}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium flex items-center gap-2"><Users /> 거주자 특징</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-sm font-semibold">주 연령대: {analysisResult.residents.ageGroup}</div>
+                <p className="text-xs text-muted-foreground">가족 형태: {analysisResult.residents.familyType}</p>
+                <p className="text-xs text-muted-foreground mt-2">{analysisResult.residents.summary}</p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+      
+      <Separator className="my-8" />
+
+      {/* Existing Calculator Section */}
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-1">
           <CardHeader>
-            <CardTitle>투자 정보 입력</CardTitle>
-            <CardDescription>분석에 필요한 정보를 입력하세요.</CardDescription>
+            <CardTitle>수동 투자 분석기</CardTitle>
+            <CardDescription>직접 정보를 입력하여 분석합니다.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
