@@ -1,0 +1,12 @@
+name = "studio"
+main = ".open-next/worker.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+assets = { directory = ".open-next/assets", binding = "ASSETS" }
+
+[vars]
+NODE_ENV = "production"
+
+[[kv_namespaces]]
+binding = "NEXT_CACHE_WORKERS_KV"
+id = "d155ffb5b7d14260b64e68b73a052a7e"
