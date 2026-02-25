@@ -8,6 +8,7 @@
  */
 
 import { ai } from '@/ai/genkit';
+import { gemini15Flash } from '@genkit-ai/google-genai';
 import { z } from 'zod';
 
 const RealEstateAnalysisInputSchema = z.string().describe("The address or name of the apartment to analyze.");
@@ -60,7 +61,7 @@ Provide all monetary values in Korean Won (KRW). Be specific and use realistic d
 5.  **거주자 특징 (Resident Characteristics)**: Describe the primary resident demographic, including main age groups and family types (e.g., dual-income couples, families with children).
 
 Do not include any text outside of the JSON object.`,
-    model: 'googleai/gemini-1.5-pro',
+    model: gemini15Flash,
     config: {
         temperature: 0.3,
     }
