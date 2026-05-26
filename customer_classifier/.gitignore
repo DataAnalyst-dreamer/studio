@@ -1,0 +1,28 @@
+# 접속 정보 — 절대 버전관리에 포함하지 마세요
+.env
+
+# 중간 저장 파일
+*.pkl
+checkpoint_*.csv
+checkpoint_*.xlsx
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 가상환경
+venv/
+.venv/
+env/
+
+# 출력 결과물
+output_*.xlsx
+output_*.csv
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
