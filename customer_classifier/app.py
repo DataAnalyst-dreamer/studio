@@ -5,18 +5,15 @@ LGE.COM CS 전략 과제 — Ollama 로컬 LLM + Amazon Redshift
 
 import random
 import time
-from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 
 import classifier as clf
 import data_loader as dl
 import db_connector as dbc
 from utils import (
-    CATEGORY_COLORS,
     CATEGORY_LABELS,
     clear_checkpoint,
     load_checkpoint,
@@ -36,49 +33,276 @@ st.set_page_config(
 )
 
 # ─────────────────────────────────────────────
-# CSS 커스텀
+# 테마 색상 팔레트
 # ─────────────────────────────────────────────
-st.markdown(
-    """
+_DARK = {
+    "cat": {
+        "실패수요": "#F87171",
+        "가치수요": "#4ADE80",
+        "기타":    "#9CA3AF",
+        "판단보류": "#FCD34D",
+        "분류실패": "#64748B",
+    },
+    "bg":         "#0D1117",
+    "sidebar":    "#161B22",
+    "panel":      "#1C2128",
+    "border":     "#30363D",
+    "text":       "#E6EDF3",
+    "text_sub":   "#8B949E",
+    "text_muted": "#656D76",
+    "accent":     "#3FBDAC",
+    "ok":   "#4ADE80",
+    "warn": "#FCD34D",
+    "err":  "#F87171",
+    "plot_paper": "#0D1117",
+    "plot_bg":    "#1C2128",
+    "plot_grid":  "#30363D",
+    "plot_font":  "#E6EDF3",
+    "infobox_bg":   "#1C2128",
+    "infobox_bdr":  "#30363D",
+    "infobox_text": "#C9D1D9",
+    "infobox_bold": "#E6EDF3",
+}
+
+_LIGHT = {
+    "cat": {
+        "실패수요": "#B91C1C",
+        "가치수요": "#15803D",
+        "기타":    "#475569",
+        "판단보류": "#92400E",
+        "분류실패": "#6B7280",
+    },
+    "bg":         "#F6F8FA",
+    "sidebar":    "#FFFFFF",
+    "panel":      "#FFFFFF",
+    "border":     "#D0D7DE",
+    "text":       "#1F2328",
+    "text_sub":   "#57606A",
+    "text_muted": "#848D97",
+    "accent":     "#0D9488",
+    "ok":   "#15803D",
+    "warn": "#92400E",
+    "err":  "#B91C1C",
+    "plot_paper": "#FFFFFF",
+    "plot_bg":    "#F6F8FA",
+    "plot_grid":  "#E5E7EB",
+    "plot_font":  "#1F2328",
+    "infobox_bg":   "#EFF8FF",
+    "infobox_bdr":  "#BAE0FD",
+    "infobox_text": "#24292F",
+    "infobox_bold": "#0550AE",
+}
+
+
+def _C(key: str) -> str:
+    """현재 테마의 색상값 반환"""
+    palette = _DARK if st.session_state.get("theme", "다크") == "다크" else _LIGHT
+    return palette[key]
+
+
+def _cat_color(cat: str) -> str:
+    palette = _DARK if st.session_state.get("theme", "다크") == "다크" else _LIGHT
+    return palette["cat"].get(cat, palette["text"])
+
+
+def _apply_theme_css() -> None:
+    C = _DARK if st.session_state.get("theme", "다크") == "다크" else _LIGHT
+    is_dark = C is _DARK
+
+    card_shadow = "" if is_dark else "box-shadow: 0 1px 4px rgba(0,0,0,0.08);"
+    sidebar_shadow = "" if is_dark else "box-shadow: 2px 0 8px rgba(0,0,0,0.06);"
+
+    css = f"""
 <style>
-    .stApp { background-color: #0f1117; }
-    .metric-card {
-        background: #1a2029; border: 1px solid #2a323d;
-        border-radius: 10px; padding: 16px 20px; text-align: center;
-    }
-    .metric-card .label { font-size: 13px; color: #9aa6b3; margin-bottom: 6px; }
-    .metric-card .value { font-size: 28px; font-weight: 800; color: #ffffff; }
-    .metric-card .pct   { font-size: 14px; color: #677483; margin-top: 4px; }
-    .section-title {
-        font-size: 18px; font-weight: 700; color: #ffffff;
-        border-left: 3px solid #4fd1c5; padding-left: 12px; margin: 24px 0 12px;
-    }
-    .info-box {
-        background: #1a2029; border: 1px solid #2a323d;
-        border-radius: 8px; padding: 14px 18px; font-size: 14px; color: #9aa6b3;
-    }
-    .status-ok   { color: #6fcf97; font-weight: 700; }
-    .status-warn { color: #f0b65e; font-weight: 700; }
-    .status-err  { color: #f2738c; font-weight: 700; }
+/* ══════════════════════════════════════
+   기본 배경 · 텍스트
+══════════════════════════════════════ */
+.stApp, [data-testid="stMain"],
+.main, .block-container {{
+    background-color: {C['bg']} !important;
+    color: {C['text']} !important;
+}}
+[data-testid="stSidebar"] > div:first-child {{
+    background-color: {C['sidebar']} !important;
+    border-right: 1px solid {C['border']};
+    {sidebar_shadow}
+}}
+/* 헤더(상단 툴바) */
+[data-testid="stHeader"] {{
+    background-color: {C['bg']} !important;
+    border-bottom: 1px solid {C['border']};
+}}
+
+/* ══════════════════════════════════════
+   텍스트 전반
+══════════════════════════════════════ */
+.stMarkdown p, .stMarkdown li,
+.stMarkdown td, .stMarkdown th,
+.stMarkdown h1, .stMarkdown h2,
+.stMarkdown h3, .stMarkdown h4,
+.element-container p, label, span.st-emotion-cache-1b2d1a4,
+[data-testid="stWidgetLabel"] p {{
+    color: {C['text']} !important;
+}}
+h1, h2, h3, h4 {{ color: {C['text']} !important; }}
+strong {{ color: {C['text']} !important; }}
+code {{ color: {C['accent']} !important; }}
+
+/* ══════════════════════════════════════
+   탭
+══════════════════════════════════════ */
+.stTabs [data-baseweb="tab-list"] {{
+    background: transparent !important;
+    border-bottom: 2px solid {C['border']} !important;
+    gap: 4px;
+}}
+.stTabs [data-baseweb="tab"] {{
+    background: transparent !important;
+}}
+.stTabs [data-baseweb="tab"] p,
+.stTabs [data-baseweb="tab"] div {{
+    color: {C['text_sub']} !important;
+    font-weight: 500;
+}}
+.stTabs [aria-selected="true"] p,
+.stTabs [aria-selected="true"] div {{
+    color: {C['accent']} !important;
+    font-weight: 700;
+}}
+.stTabs [aria-selected="true"] {{
+    border-bottom: 2px solid {C['accent']} !important;
+}}
+
+/* ══════════════════════════════════════
+   입력 위젯
+══════════════════════════════════════ */
+[data-testid="stSelectbox"] > div > div,
+[data-testid="stTextInput"] > div > div,
+[data-testid="stNumberInput"] > div > div,
+[data-testid="stTextArea"] textarea {{
+    background-color: {C['panel']} !important;
+    color: {C['text']} !important;
+    border-color: {C['border']} !important;
+}}
+[data-testid="stSlider"] > div {{ color: {C['text']} !important; }}
+
+/* ══════════════════════════════════════
+   라디오 버튼
+══════════════════════════════════════ */
+[data-testid="stRadio"] label span {{ color: {C['text']} !important; }}
+
+/* ══════════════════════════════════════
+   Expander
+══════════════════════════════════════ */
+[data-testid="stExpander"] details summary {{
+    background-color: {C['panel']} !important;
+    border: 1px solid {C['border']} !important;
+    border-radius: 8px;
+}}
+[data-testid="stExpander"] details summary span,
+[data-testid="stExpander"] details summary p {{
+    color: {C['text']} !important;
+    font-weight: 600;
+}}
+[data-testid="stExpander"] details {{
+    border: 1px solid {C['border']} !important;
+    border-radius: 8px;
+}}
+
+/* ══════════════════════════════════════
+   데이터프레임
+══════════════════════════════════════ */
+[data-testid="stDataFrame"] {{
+    border: 1px solid {C['border']} !important;
+    border-radius: 8px;
+}}
+
+/* ══════════════════════════════════════
+   커스텀 컴포넌트
+══════════════════════════════════════ */
+.metric-card {{
+    background: {C['panel']} !important;
+    border: 1px solid {C['border']} !important;
+    border-radius: 12px;
+    padding: 18px 20px;
+    text-align: center;
+    {card_shadow}
+}}
+.metric-card .m-label {{
+    font-size: 13px;
+    color: {C['text_sub']};
+    margin-bottom: 8px;
+    font-weight: 500;
+}}
+.metric-card .m-value {{
+    font-size: 30px;
+    font-weight: 800;
+    line-height: 1.1;
+}}
+.metric-card .m-pct {{
+    font-size: 13px;
+    color: {C['text_muted']};
+    margin-top: 6px;
+}}
+
+.section-title {{
+    font-size: 17px;
+    font-weight: 700;
+    color: {C['text']};
+    border-left: 3px solid {C['accent']};
+    padding-left: 12px;
+    margin: 28px 0 14px;
+}}
+
+.info-box {{
+    background: {C['infobox_bg']};
+    border: 1px solid {C['infobox_bdr']};
+    border-radius: 8px;
+    padding: 14px 18px;
+    font-size: 14px;
+    color: {C['infobox_text']};
+    line-height: 1.65;
+}}
+.info-box b {{ color: {C['infobox_bold']}; }}
+
+.status-ok   {{ color: {C['ok']};   font-weight: 700; }}
+.status-warn {{ color: {C['warn']}; font-weight: 700; }}
+.status-err  {{ color: {C['err']};  font-weight: 700; }}
+
+/* ══════════════════════════════════════
+   알림박스 (st.info / st.warning / st.error)
+══════════════════════════════════════ */
+[data-testid="stAlert"] p {{ color: {C['text']} !important; }}
 </style>
-""",
-    unsafe_allow_html=True,
-)
+"""
+    st.markdown(css, unsafe_allow_html=True)
+
+
+def _plotly_layout() -> dict:
+    C = _DARK if st.session_state.get("theme", "다크") == "다크" else _LIGHT
+    return {
+        "paper_bgcolor": C["plot_paper"],
+        "plot_bgcolor":  C["plot_bg"],
+        "font_color":    C["plot_font"],
+        "gridcolor":     C["plot_grid"],
+    }
+
 
 # ─────────────────────────────────────────────
 # 세션 상태 초기화
 # ─────────────────────────────────────────────
 def _init_state():
     defaults = {
-        "standard_df": None,       # 표준화된 입력 데이터
-        "result_df": None,         # 분류 완료 결과
-        "is_running": False,       # 분류 실행 중 여부
-        "stop_flag": [False],      # 중단 플래그
-        "db_conn": None,           # DB 연결 객체
-        "db_driver": None,
-        "selected_model": None,
-        "progress_current": 0,
-        "progress_total": 0,
+        "theme":            "다크",
+        "standard_df":      None,
+        "result_df":        None,
+        "sample_result":    None,
+        "is_running":       False,
+        "stop_flag":        [False],
+        "db_conn":          None,
+        "db_driver":        None,
+        "selected_model":   None,
+        "confidence_threshold": 75,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -86,21 +310,33 @@ def _init_state():
 
 _init_state()
 
-
 # ─────────────────────────────────────────────
 # 사이드바
 # ─────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## 🔍 고객 문의·리뷰 분류")
+
+    # ── 테마 선택 ──
+    theme_choice = st.radio(
+        "🎨 화면 테마",
+        ["다크", "라이트"],
+        horizontal=True,
+        index=0 if st.session_state["theme"] == "다크" else 1,
+        key="_theme_radio",
+    )
+    if theme_choice != st.session_state["theme"]:
+        st.session_state["theme"] = theme_choice
+        st.rerun()
+
     st.markdown("---")
 
-    # Ollama 상태 점검
+    # ── Ollama 상태 ──
     st.markdown("### ⚙️ LLM 엔진 상태")
     ollama_ok, ollama_msg = clf.check_ollama()
     if ollama_ok:
-        st.markdown(f'<span class="status-ok">● Ollama 실행 중</span>', unsafe_allow_html=True)
+        st.markdown('<span class="status-ok">● Ollama 실행 중</span>', unsafe_allow_html=True)
     else:
-        st.markdown(f'<span class="status-err">● Ollama 미실행</span>', unsafe_allow_html=True)
+        st.markdown('<span class="status-err">● Ollama 미실행</span>', unsafe_allow_html=True)
         st.error(ollama_msg)
         st.markdown(
             "**Ollama 시작 방법:**\n\n"
@@ -108,7 +344,7 @@ with st.sidebar:
             "```\nollama serve\n```"
         )
 
-    # 모델 선택
+    # ── 모델 선택 ──
     models = clf.list_models()
     if models:
         preferred = [m for m in models if any(k in m for k in ["exaone", "qwen", "gemma"])]
@@ -118,9 +354,9 @@ with st.sidebar:
         st.markdown(
             '<div class="info-box">'
             "<b>모델 추천 순서:</b><br>"
-            "① exaone3.5 (한국어 최우수 · LG AI연구원)<br>"
-            "② qwen2.5 (다국어 강함)<br>"
-            "③ gemma2 (경량 · 저사양 PC용)"
+            "① exaone3.5 — 한국어 최우수 (LG AI연구원)<br>"
+            "② qwen2.5 — 다국어 강함<br>"
+            "③ gemma2 — 경량 (저사양 PC용)"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -129,31 +365,33 @@ with st.sidebar:
         st.markdown(
             "아래 명령어로 모델을 설치하세요:\n"
             "```\nollama pull exaone3.5\n```"
-            "또는\n"
-            "```\nollama pull qwen2.5:7b\n```"
         )
         st.session_state["selected_model"] = None
 
     st.markdown("---")
 
-    # 중간 저장 불러오기
+    # ── 중간 저장 불러오기 ──
     checkpoint = load_checkpoint()
     if checkpoint:
         st.markdown("### 💾 이전 작업 발견")
-        saved_at = checkpoint.get("saved_at", "알 수 없음")
+        saved_at    = checkpoint.get("saved_at", "알 수 없음")
         saved_count = checkpoint.get("processed_count", 0)
         st.info(f"저장 시각: {saved_at}\n처리 완료: {saved_count:,}건")
         col_resume, col_discard = st.columns(2)
         with col_resume:
             if st.button("▶ 이어하기", use_container_width=True):
                 st.session_state["standard_df"] = checkpoint.get("standard_df")
-                st.session_state["result_df"] = checkpoint.get("result_df")
+                st.session_state["result_df"]   = checkpoint.get("result_df")
                 st.rerun()
         with col_discard:
             if st.button("🗑 버리기", use_container_width=True):
                 clear_checkpoint()
                 st.rerun()
 
+# ─────────────────────────────────────────────
+# CSS 주입 (테마 선택 후)
+# ─────────────────────────────────────────────
+_apply_theme_css()
 
 # ─────────────────────────────────────────────
 # 메인 영역
@@ -161,7 +399,7 @@ with st.sidebar:
 st.markdown("# 🔍 고객 문의·리뷰 자동 분류 프로그램")
 st.markdown(
     "고객 Q&A 및 상품 리뷰를 **실패수요 / 가치수요 / 기타 / 판단보류**로 자동 분류합니다. "
-    "분류에는 사내 Ollama 로컬 LLM을 사용하므로 외부 인터넷 없이 동작합니다."
+    "사내 Ollama 로컬 LLM을 사용하므로 외부 인터넷 없이 동작합니다."
 )
 
 tab_input, tab_classify, tab_result, tab_help = st.tabs(
@@ -198,7 +436,7 @@ with tab_input:
                 st.dataframe(df.head(10), use_container_width=True)
                 if st.button("💾 이 데이터로 분류 준비 완료", type="primary"):
                     st.session_state["standard_df"] = df
-                    st.session_state["result_df"] = None
+                    st.session_state["result_df"]   = None
                     clear_checkpoint()
                     st.success("2단계 탭에서 분류를 시작할 수 있습니다.")
 
@@ -225,7 +463,7 @@ with tab_input:
                     ok, msg = dbc.test_connection()
                 if ok:
                     conn, driver = dbc.get_connection()
-                    st.session_state["db_conn"] = conn
+                    st.session_state["db_conn"]   = conn
                     st.session_state["db_driver"] = driver
                     st.success(msg)
                 else:
@@ -237,7 +475,7 @@ with tab_input:
                     st.success(f"✅ {len(df):,}건 로드 완료")
                     if st.button("💾 이 데이터로 분류 준비 완료", type="primary", key="db_ready"):
                         st.session_state["standard_df"] = df
-                        st.session_state["result_df"] = None
+                        st.session_state["result_df"]   = None
                         clear_checkpoint()
                         st.success("2단계 탭에서 분류를 시작할 수 있습니다.")
 
@@ -259,7 +497,6 @@ with tab_classify:
 
     st.markdown(f"**준비된 데이터:** {len(std_df):,}건 &nbsp;|&nbsp; **사용 모델:** `{model}`")
 
-    # 이미 완료된 결과가 있는 경우
     result_df = st.session_state.get("result_df")
     if result_df is not None:
         completed = result_df["분류"].notna().sum()
@@ -286,22 +523,23 @@ with tab_classify:
 
         st.markdown("---")
 
-        # 샘플 검증
+        # ── 샘플 검증 ──
         st.markdown("### 🔬 샘플 검증 (권장)")
         st.markdown(
             "전체 분류 전에 소량 샘플로 품질을 먼저 확인하는 것을 **강력히 권장**합니다. "
             "샘플 결과를 보고 분류 기준을 조정한 뒤 전체를 실행하세요."
         )
         sample_size = st.number_input(
-            "샘플 건수", min_value=10, max_value=min(500, len(std_df)), value=min(100, len(std_df)), step=10
+            "샘플 건수",
+            min_value=10, max_value=min(500, len(std_df)),
+            value=min(100, len(std_df)), step=10,
         )
         if st.button("🔬 샘플 검증 시작", disabled=not model):
             sample_indices = random.sample(range(len(std_df)), int(sample_size))
             sample_df = std_df.iloc[sample_indices].copy().reset_index(drop=True)
 
             progress_bar = st.progress(0, text="샘플 분류 중...")
-            status_text = st.empty()
-
+            status_text  = st.empty()
             results = []
             for i, row in sample_df.iterrows():
                 result = clf.classify_one(row["text"], model)
@@ -310,8 +548,9 @@ with tab_classify:
                 progress_bar.progress(pct, text=f"샘플 분류 중... {i+1}/{len(sample_df)}")
                 status_text.text(f"최근 분류: [{result['분류']}] {row['text'][:50]}...")
 
-            result_records = pd.DataFrame(results)
-            sample_result = pd.concat([sample_df.reset_index(drop=True), result_records], axis=1)
+            sample_result = pd.concat(
+                [sample_df.reset_index(drop=True), pd.DataFrame(results)], axis=1
+            )
             st.session_state["sample_result"] = sample_result
             progress_bar.empty()
             status_text.empty()
@@ -324,17 +563,15 @@ with tab_classify:
             c1, c2, c3, c4 = st.columns(4)
             for col_w, cat in zip([c1, c2, c3, c4], ["실패수요", "가치수요", "기타", "판단보류"]):
                 with col_w:
-                    n = counts.get(cat, 0)
+                    n   = counts.get(cat, 0)
                     pct = n / len(sample_result) * 100
-                    color = CATEGORY_COLORS.get(cat, "#fff")
                     st.markdown(
                         f'<div class="metric-card">'
-                        f'<div class="label">{CATEGORY_LABELS[cat]}</div>'
-                        f'<div class="value" style="color:{color}">{n}</div>'
-                        f'<div class="pct">{pct:.1f}%</div></div>',
+                        f'<div class="m-label">{CATEGORY_LABELS[cat]}</div>'
+                        f'<div class="m-value" style="color:{_cat_color(cat)}">{n}</div>'
+                        f'<div class="m-pct">{pct:.1f}%</div></div>',
                         unsafe_allow_html=True,
                     )
-
             st.dataframe(
                 sample_result[["text", "분류", "세부사유", "확신도"]].head(20),
                 use_container_width=True,
@@ -342,7 +579,7 @@ with tab_classify:
 
         st.markdown("---")
 
-        # 전체 분류
+        # ── 전체 분류 ──
         st.markdown("### ▶ 전체 분류 실행")
         btn_col1, btn_col2 = st.columns([2, 1])
         with btn_col1:
@@ -352,10 +589,7 @@ with tab_classify:
                 disabled=not model or st.session_state["is_running"],
             )
         with btn_col2:
-            stop_btn = st.button(
-                "⏹ 중단",
-                disabled=not st.session_state["is_running"],
-            )
+            stop_btn = st.button("⏹ 중단", disabled=not st.session_state["is_running"])
 
         if stop_btn:
             st.session_state["stop_flag"][0] = True
@@ -363,44 +597,37 @@ with tab_classify:
 
         if run_btn and not st.session_state["is_running"]:
             st.session_state["is_running"] = True
-            st.session_state["stop_flag"] = [False]
-            results_so_far = []
+            st.session_state["stop_flag"]  = [False]
 
             progress_bar = st.progress(0, text="분류 준비 중...")
-            status_text = st.empty()
+            status_text  = st.empty()
             elapsed_text = st.empty()
-            start_time = time.time()
+            start_time   = time.time()
 
             def on_progress(current, total):
-                pct = current / total
-                elapsed = time.time() - start_time
-                rate = current / elapsed if elapsed > 0 else 0
+                pct      = current / total
+                elapsed  = time.time() - start_time
+                rate     = current / elapsed if elapsed > 0 else 0
                 remaining = (total - current) / rate if rate > 0 else 0
-                progress_bar.progress(
-                    pct,
-                    text=f"분류 중... {current:,}/{total:,}건 ({pct*100:.1f}%)",
-                )
+                progress_bar.progress(pct, text=f"분류 중... {current:,}/{total:,}건 ({pct*100:.1f}%)")
                 elapsed_text.text(
                     f"경과: {elapsed:.0f}초 | 남은 예상 시간: {remaining:.0f}초 | 속도: {rate:.1f}건/초"
                 )
 
             def on_checkpoint(partial_results):
-                partial_df_res = pd.DataFrame(partial_results)
+                partial_df  = pd.DataFrame(partial_results)
                 partial_std = std_df.iloc[: len(partial_results)].copy().reset_index(drop=True)
-                partial_merged = pd.concat([partial_std, partial_df_res], axis=1)
-                save_checkpoint(
-                    {
-                        "standard_df": std_df,
-                        "result_df": partial_merged,
-                        "processed_count": len(partial_results),
-                        "saved_at": now_str(),
-                    }
-                )
+                merged      = pd.concat([partial_std, partial_df], axis=1)
+                save_checkpoint({
+                    "standard_df":     std_df,
+                    "result_df":       merged,
+                    "processed_count": len(partial_results),
+                    "saved_at":        now_str(),
+                })
 
             texts = std_df["text"].tolist()
             raw_results = clf.classify_batch(
-                texts,
-                model,
+                texts, model,
                 progress_callback=on_progress,
                 stop_flag=st.session_state["stop_flag"],
                 checkpoint_callback=on_checkpoint,
@@ -408,13 +635,13 @@ with tab_classify:
             )
 
             result_records = pd.DataFrame(raw_results)
-            processed_std = std_df.iloc[: len(raw_results)].copy().reset_index(drop=True)
-            final_df = pd.concat([processed_std, result_records], axis=1)
+            processed_std  = std_df.iloc[: len(raw_results)].copy().reset_index(drop=True)
+            final_df       = pd.concat([processed_std, result_records], axis=1)
             final_df["검토완료"] = False
 
-            st.session_state["result_df"] = final_df
-            st.session_state["is_running"] = False
-            st.session_state["confidence_threshold"] = confidence_threshold
+            st.session_state["result_df"]             = final_df
+            st.session_state["is_running"]            = False
+            st.session_state["confidence_threshold"]  = confidence_threshold
             clear_checkpoint()
 
             progress_bar.empty()
@@ -422,8 +649,7 @@ with tab_classify:
             elapsed_text.empty()
 
             total_time = time.time() - start_time
-            stopped = st.session_state["stop_flag"][0]
-            if stopped:
+            if st.session_state["stop_flag"][0]:
                 st.warning(f"중단됨. {len(raw_results):,}/{len(std_df):,}건 처리 완료. (소요 {total_time:.0f}초)")
             else:
                 st.success(f"✅ 분류 완료! {len(raw_results):,}건 처리. (소요 {total_time:.0f}초)")
@@ -441,48 +667,54 @@ with tab_result:
         st.stop()
 
     confidence_threshold = st.session_state.get("confidence_threshold", 75)
+    PL = _plotly_layout()
 
     # ── 요약 지표 ──
     st.markdown('<div class="section-title">📊 분류 결과 요약</div>', unsafe_allow_html=True)
-    total = len(result_df)
+    total  = len(result_df)
     counts = result_df["분류"].value_counts()
 
     metric_cols = st.columns(5)
     for i, (cat, label) in enumerate(CATEGORY_LABELS.items()):
-        n = counts.get(cat, 0)
+        n   = counts.get(cat, 0)
         pct = n / total * 100 if total > 0 else 0
-        color = CATEGORY_COLORS.get(cat, "#fff")
         with metric_cols[i]:
             st.markdown(
                 f'<div class="metric-card">'
-                f'<div class="label">{label}</div>'
-                f'<div class="value" style="color:{color}">{n:,}</div>'
-                f'<div class="pct">{pct:.1f}%</div></div>',
+                f'<div class="m-label">{label}</div>'
+                f'<div class="m-value" style="color:{_cat_color(cat)}">{n:,}</div>'
+                f'<div class="m-pct">{pct:.1f}%</div></div>',
                 unsafe_allow_html=True,
             )
-
     st.markdown(f"<br>**전체:** {total:,}건", unsafe_allow_html=True)
 
     # ── 차트 ──
     st.markdown('<div class="section-title">📈 차트</div>', unsafe_allow_html=True)
     chart_col1, chart_col2 = st.columns(2)
 
+    cat_colors = (_DARK if st.session_state["theme"] == "다크" else _LIGHT)["cat"]
+
     with chart_col1:
-        pie_data = pd.DataFrame(
-            {"분류": list(CATEGORY_LABELS.keys()), "건수": [counts.get(c, 0) for c in CATEGORY_LABELS]}
-        )
+        pie_data = pd.DataFrame({
+            "분류": list(CATEGORY_LABELS.keys()),
+            "건수": [counts.get(c, 0) for c in CATEGORY_LABELS],
+        })
         pie_data = pie_data[pie_data["건수"] > 0]
         fig_pie = px.pie(
             pie_data, names="분류", values="건수",
-            color="분류",
-            color_discrete_map=CATEGORY_COLORS,
+            color="분류", color_discrete_map=cat_colors,
             title="분류 비율",
         )
-        fig_pie.update_layout(paper_bgcolor="#0f1117", plot_bgcolor="#0f1117", font_color="#d7dee7")
+        fig_pie.update_layout(
+            paper_bgcolor=PL["paper_bgcolor"],
+            plot_bgcolor=PL["plot_bgcolor"],
+            font_color=PL["font_color"],
+            title_font_size=15,
+        )
+        fig_pie.update_traces(textfont_color=PL["font_color"])
         st.plotly_chart(fig_pie, use_container_width=True)
 
     with chart_col2:
-        # 세부사유 Top 10
         fd = result_df[result_df["분류"] == "실패수요"]
         if len(fd) > 0 and "세부사유" in fd.columns:
             top_reasons = fd["세부사유"].value_counts().head(10).reset_index()
@@ -490,17 +722,21 @@ with tab_result:
             fig_bar = px.bar(
                 top_reasons, x="건수", y="세부사유", orientation="h",
                 title="실패수요 세부사유 Top 10",
-                color_discrete_sequence=["#F2738C"],
+                color_discrete_sequence=[cat_colors["실패수요"]],
             )
             fig_bar.update_layout(
-                paper_bgcolor="#0f1117", plot_bgcolor="#1a2029",
-                font_color="#d7dee7", yaxis={"autorange": "reversed"},
+                paper_bgcolor=PL["paper_bgcolor"],
+                plot_bgcolor=PL["plot_bgcolor"],
+                font_color=PL["font_color"],
+                yaxis={"autorange": "reversed", "gridcolor": PL["gridcolor"]},
+                xaxis={"gridcolor": PL["gridcolor"]},
+                title_font_size=15,
             )
             st.plotly_chart(fig_bar, use_container_width=True)
         else:
             st.info("실패수요 데이터가 없어 세부사유 차트를 표시할 수 없습니다.")
 
-    # 기간별 추이 (날짜 있는 경우)
+    # 기간별 추이
     if "written_at" in result_df.columns and result_df["written_at"].str.strip().ne("").any():
         try:
             df_dated = result_df.copy()
@@ -511,12 +747,16 @@ with tab_result:
                 trend = df_dated.groupby(["월", "분류"]).size().reset_index(name="건수")
                 fig_trend = px.line(
                     trend, x="월", y="건수", color="분류",
-                    color_discrete_map=CATEGORY_COLORS,
-                    title="월별 분류 추이",
-                    markers=True,
+                    color_discrete_map=cat_colors,
+                    title="월별 분류 추이", markers=True,
                 )
                 fig_trend.update_layout(
-                    paper_bgcolor="#0f1117", plot_bgcolor="#1a2029", font_color="#d7dee7"
+                    paper_bgcolor=PL["paper_bgcolor"],
+                    plot_bgcolor=PL["plot_bgcolor"],
+                    font_color=PL["font_color"],
+                    yaxis={"gridcolor": PL["gridcolor"]},
+                    xaxis={"gridcolor": PL["gridcolor"]},
+                    title_font_size=15,
                 )
                 st.plotly_chart(fig_trend, use_container_width=True)
         except Exception:
@@ -539,23 +779,20 @@ with tab_result:
 
     st.markdown(f"표시 중: **{len(filtered):,}건**")
 
-    # 수정 가능한 표
     category_options = ["실패수요", "가치수요", "기타", "판단보류", "분류실패"]
-    display_cols = ["inquiry_id", "data_type", "text", "분류", "세부사유", "확신도"]
-    available_cols = [c for c in display_cols if c in filtered.columns]
+    display_cols     = ["inquiry_id", "data_type", "text", "분류", "세부사유", "확신도"]
+    available_cols   = [c for c in display_cols if c in filtered.columns]
 
     if len(filtered) > 0:
         edited_df = st.data_editor(
             filtered[available_cols],
             column_config={
-                "분류": st.column_config.SelectboxColumn(
-                    "분류", options=category_options, required=True
-                ),
-                "text": st.column_config.TextColumn("본문", width="large"),
-                "확신도": st.column_config.NumberColumn("확신도", min_value=0, max_value=100, format="%d"),
+                "분류":       st.column_config.SelectboxColumn("분류", options=category_options, required=True),
+                "text":       st.column_config.TextColumn("본문", width="large"),
+                "확신도":     st.column_config.NumberColumn("확신도", min_value=0, max_value=100, format="%d"),
                 "inquiry_id": st.column_config.TextColumn("ID", width="small"),
-                "data_type": st.column_config.TextColumn("유형", width="small"),
-                "세부사유": st.column_config.TextColumn("세부사유", width="medium"),
+                "data_type":  st.column_config.TextColumn("유형", width="small"),
+                "세부사유":   st.column_config.TextColumn("세부사유", width="medium"),
             },
             use_container_width=True,
             num_rows="fixed",
@@ -564,9 +801,8 @@ with tab_result:
 
         if st.button("💾 수정 내용 반영"):
             for idx, row in edited_df.iterrows():
-                orig_idx = filtered.index[list(filtered.index).index(idx)] if idx in filtered.index else None
-                if orig_idx is not None:
-                    st.session_state["result_df"].at[orig_idx, "분류"] = row["분류"]
+                if idx in filtered.index:
+                    st.session_state["result_df"].at[idx, "분류"] = row["분류"]
             st.success("수정 내용이 결과에 반영됐습니다.")
             st.rerun()
     else:
@@ -574,9 +810,9 @@ with tab_result:
 
     # ── 다운로드 ──
     st.markdown('<div class="section-title">📥 결과 다운로드</div>', unsafe_allow_html=True)
-    final = st.session_state["result_df"]
+    final      = st.session_state["result_df"]
     excel_bytes = to_excel_bytes(final)
-    filename = f"분류결과_{now_str()}.xlsx"
+    filename   = f"분류결과_{now_str()}.xlsx"
     st.download_button(
         label="📥 Excel 파일 다운로드 (원본 + 분류 결과)",
         data=excel_bytes,
@@ -603,27 +839,25 @@ with tab_help:
 1. https://www.python.org 에서 Python 3.11 이상을 다운로드해 설치합니다.
 2. 설치 시 **"Add Python to PATH"** 옵션을 반드시 체크하세요.
 
-**2단계 — Ollama 설치**
+**2단계 — Ollama 설치 및 모델 다운로드**
 1. https://ollama.com 에서 Windows용 설치 파일을 다운로드해 실행합니다.
 2. 설치 후 터미널에서:
 ```
 ollama pull exaone3.5
 ```
-(사양이 낮으면: `ollama pull qwen2.5:7b` 또는 `ollama pull gemma2`)
 
-**3단계 — 프로그램 라이브러리 설치**
-
-터미널에서 프로그램 폴더로 이동 후:
+**3단계 — 라이브러리 설치**
 ```
 pip install -r requirements.txt
 ```
 
 **4단계 — DB 접속 정보 설정 (DB 사용 시)**
 
-`.env.example` 파일을 복사해 `.env` 파일로 이름 변경 후 값 입력.
+`.env.example` 파일을 복사 → `.env` 로 이름 변경 → 값 입력.
 
-**5단계 — 프로그램 실행**
+**5단계 — 실행**
 ```
+ollama serve
 streamlit run app.py
 ```
 """
@@ -632,27 +866,11 @@ streamlit run app.py
     with st.expander("🍎 처음 설치 방법 (Mac)"):
         st.markdown(
             """
-**1단계 — Python 설치**
-터미널에서:
-```
-brew install python
-```
-(Homebrew 없으면: https://brew.sh 설치 후 위 명령 실행)
-
-**2단계 — Ollama 설치**
-```
-brew install ollama
+```bash
+brew install python ollama
 ollama serve &
 ollama pull exaone3.5
-```
-
-**3단계 — 라이브러리 설치**
-```
 pip3 install -r requirements.txt
-```
-
-**4단계 — 실행**
-```
 streamlit run app.py
 ```
 """
@@ -664,51 +882,33 @@ streamlit run app.py
 | 오류 상황 | 해결 방법 |
 |-----------|-----------|
 | "Ollama 미실행" | 터미널에서 `ollama serve` 실행 후 새로고침 |
-| "설치된 모델이 없습니다" | `ollama pull exaone3.5` 실행 후 새로고침 |
-| DB 연결 실패 | .env 파일의 접속 정보 확인. 방화벽/VPN 상태 확인. IT/DBA 문의 |
-| 한글 깨짐 | CSV는 UTF-8 또는 CP949로 저장. Excel 사용 권장 |
-| JSON 파싱 실패 | 자동으로 "분류실패" 처리됨. 모델 변경 또는 본문 확인 |
-| 분류가 너무 느림 | 더 작은 모델 선택 (예: gemma2). GPU 있는 PC 권장 |
-| "pip 명령어를 찾을 수 없음" | Python 설치 시 PATH 체크 여부 확인. `pip3` 사용 |
+| 설치된 모델 없음 | `ollama pull exaone3.5` 실행 후 새로고침 |
+| DB 연결 실패 | .env 파일 접속 정보 확인. 방화벽/VPN 상태 확인 |
+| 한글 깨짐 | CSV는 UTF-8 또는 CP949 저장. Excel 사용 권장 |
+| JSON 파싱 실패 | 자동 "분류실패" 처리됨. 모델 변경 또는 본문 확인 |
+| 분류가 너무 느림 | 더 작은 모델 선택 (qwen2.5:7b, gemma2) |
 """
         )
 
     with st.expander("🗄️ IT/DBA에 요청할 DB 체크리스트"):
         st.markdown(
             """
-DB 연결을 위해 아래 정보를 사내 IT부서 또는 DBA에 요청하세요.
-
-**요청 항목:**
 1. Redshift 호스트 주소 (RS_HOST)
 2. 포트 번호 (RS_PORT, 기본 5439)
 3. 데이터베이스 이름 (RS_DATABASE)
 4. **읽기 전용 계정** 아이디/비밀번호 (RS_USER / RS_PASSWORD)
-   - 운영 계정 사용은 보안 위험이 있으므로 반드시 분석 전용 읽기 전용 계정을 발급받으세요.
-5. 고객 Q&A 데이터 테이블명·컬럼명
-   - 본문 컬럼, 작성일 컬럼, 상품명 컬럼, 고유ID 컬럼
-6. 상품 리뷰 데이터 테이블명·컬럼명 (위와 동일)
-7. 접속 허용 IP 등록 필요 시 → 현재 Cloud PC IP 제공 필요
+5. Q&A 데이터 테이블명·컬럼명 (본문 / 작성일 / 상품명 / 고유ID)
+6. 리뷰 데이터 테이블명·컬럼명
+7. Cloud PC IP 등록 필요 여부
 """
         )
 
     with st.expander("🔒 보안 안내"):
         st.markdown(
             """
-- **비밀번호는 .env 파일에만** 보관하세요. 코드·이메일·메신저·문서에 절대 포함하지 마세요.
+- 비밀번호는 **.env 파일에만** 보관하세요. 이메일·코드·메신저에 절대 포함하지 마세요.
 - `.env` 파일은 절대 GitHub/공유 폴더에 올리지 마세요. (.gitignore에 자동 포함됨)
-- 분석이 끝나면 분석용 계정 비밀번호를 주기적으로 변경하세요.
 - 이 프로그램은 DB에서 **읽기(SELECT)만** 수행합니다. 데이터를 수정·삭제하지 않습니다.
 - Ollama 로컬 LLM을 사용하므로 고객 데이터가 외부로 전송되지 않습니다.
-"""
-        )
-
-    with st.expander("💡 분류 품질 향상 팁"):
-        st.markdown(
-            """
-1. **샘플 검증 먼저** — 전체 분류 전 100~500건 샘플로 품질을 확인하세요.
-2. **확신도 낮음 필터** — 확신도 75 미만 항목은 사람이 직접 검토하세요.
-3. **모델 선택** — 한국어 품질 순서: exaone3.5 > qwen2.5 > gemma2
-4. **본문 정제** — 너무 짧거나(1~2글자) 의미 없는 행은 미리 제거하면 정확도가 높아집니다.
-5. **재분류** — "분류실패" 항목은 모델 변경 후 다시 시도해보세요.
 """
         )
