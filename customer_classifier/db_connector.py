@@ -111,38 +111,80 @@ def test_connection() -> Tuple[bool, str]:
 
 
 def list_schemas(conn) -> list[str]:
-    sql = """
-        SELECT schema_name
-        FROM information_schema.schemata
-        WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_internal')
-        ORDER BY schema_name
-    """
-    df = pd.read_sql(sql, conn)
-    return df["schema_name"].tolist()
+    """접근 가능한 스키마 목록 반환 — Redshift SVV_TABLES → pg_catalog → information_schema 순으로 시도"""
+    attempts = [
+        # Redshift 전용 뷰: 권한 있는 테이블만 보여줌 (information_schema보다 신뢰성 높음)
+        """SELECT DISTINCT table_schema AS schema_name
+           FROM svv_tables
+           WHERE table_schema NOT IN ('information_schema','pg_catalog','pg_internal','pg_toast')
+           ORDER BY table_schema""",
+        # PostgreSQL 호환 pg_catalog
+        """SELECT nspname AS schema_name
+           FROM pg_catalog.pg_namespace
+           WHERE nspname NOT IN ('pg_catalog','pg_toast','pg_internal','information_schema')
+           ORDER BY nspname""",
+        # 마지막 수단
+        """SELECT schema_name
+           FROM information_schema.schemata
+           WHERE schema_name NOT IN ('information_schema','pg_catalog','pg_internal')
+           ORDER BY schema_name""",
+    ]
+    for sql in attempts:
+        try:
+            df = pd.read_sql(sql, conn)
+            schemas = df.iloc[:, 0].dropna().tolist()
+            if schemas:
+                return schemas
+        except Exception:
+            continue
+    return []
 
 
 def list_tables(conn, schema: str) -> list[str]:
-    sql = f"""
-        SELECT table_name
-        FROM information_schema.tables
-        WHERE table_schema = '{schema}'
-          AND table_type = 'BASE TABLE'
-        ORDER BY table_name
-    """
-    df = pd.read_sql(sql, conn)
-    return df["table_name"].tolist()
+    attempts = [
+        f"""SELECT DISTINCT table_name
+            FROM svv_tables
+            WHERE table_schema = '{schema}'
+            ORDER BY table_name""",
+        f"""SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = '{schema}'
+              AND table_type = 'BASE TABLE'
+            ORDER BY table_name""",
+    ]
+    for sql in attempts:
+        try:
+            df = pd.read_sql(sql, conn)
+            tables = df["table_name"].dropna().tolist()
+            if tables:
+                return tables
+        except Exception:
+            continue
+    return []
 
 
 def list_columns(conn, schema: str, table: str) -> list[str]:
-    sql = f"""
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = '{schema}'
-          AND table_name = '{table}'
-        ORDER BY ordinal_position
-    """
-    df = pd.read_sql(sql, conn)
-    return df["column_name"].tolist()
+    attempts = [
+        f"""SELECT column_name
+            FROM svv_columns
+            WHERE table_schema = '{schema}'
+              AND table_name = '{table}'
+            ORDER BY ordinal_position""",
+        f"""SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = '{schema}'
+              AND table_name = '{table}'
+            ORDER BY ordinal_position""",
+    ]
+    for sql in attempts:
+        try:
+            df = pd.read_sql(sql, conn)
+            cols = df["column_name"].dropna().tolist()
+            if cols:
+                return cols
+        except Exception:
+            continue
+    return []
 
 
 def fetch_data(

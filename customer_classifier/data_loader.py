@@ -21,6 +21,49 @@ from utils import read_csv_auto, read_excel_auto
 
 STANDARD_COLUMNS = ["inquiry_id", "text", "written_at", "product", "data_type"]
 
+# ─── LGE.COM 사전 정의 쿼리 ────────────────────────────────────────────────
+
+PRESET_QNA_SQL = """\
+select distinct
+  t1.intg_mbr_id
+  , t1.rvw_inqu_id as q_id
+  , t2.title as q_title
+  , t1.mak_cntn as q_cntn
+  , coalesce(t2.title,'') || ' ' || coalesce(t1.mak_cntn,'') as q_full_text
+  , t1.mak_dt, t1.mak_dttm
+  , t1.mdl_id, tx.sku, tx.mdl_disp_nm
+  , ty.catg_lvl1_nm, ty.catg_lvl2_nm
+  , t3.answer_no as a_id
+  , t1.ansr_dt, t1.ansr_dttm
+  , datediff(hour, t1.mak_dttm, t1.ansr_dttm) as qa_t_gap
+  , regexp_replace(t3.answer_content, '<[^>]+>', ' ') as full_a_cntn
+from lge_bi_l1.l1vc_prod_rvw_inqu_l t1
+  inner join lge_bi_l0.l0ec_mkt_model_qna_q t2 on t1.rvw_inqu_id = t2.question_no
+  left join lge_bi_l0.l0ec_mkt_model_qna_a t3 on t1.rvw_inqu_id = t3.question_no and t3.use_flag = 'Y'
+  inner join lge_bi_l1.l1pr_prod_catg_m tx on t1.mdl_id = tx.mdl_id and tx.prod_dv_cd_nm = '일반제품'
+  left join lge_bi_l1.l1pr_catg_m ty on tx.catg_id = ty.catg_id
+where 1=1
+  and t1.mak_dt between '{date_from}' and '{date_to}'
+  and t1.del_yn = 0
+  and t1.cnts_dv_cd = 'QNA'"""
+
+PRESET_REVIEW_SQL = """\
+select distinct
+  t1.intg_mbr_id
+  , t1.rvw_inqu_id as rvw_id
+  , t1.mak_cntn as rvw_cntn
+  , t1.rvw_gpa as rating
+  , t1.mak_dt, t1.mak_dttm
+  , t1.mdl_id, tx.sku, tx.mdl_disp_nm
+  , ty.catg_lvl1_nm, ty.catg_lvl2_nm
+from lge_bi_l1.l1vc_prod_rvw_inqu_l t1
+  inner join lge_bi_l1.l1pr_prod_catg_m tx on t1.mdl_id = tx.mdl_id and tx.prod_dv_cd_nm = '일반제품'
+  left join lge_bi_l1.l1pr_catg_m ty on tx.catg_id = ty.catg_id
+where 1=1
+  and t1.mak_dt between '{date_from}' and '{date_to}'
+  and t1.del_yn = 0
+  and t1.cnts_dv_cd = 'REVIEW'"""
+
 
 def normalize_dataframe(
     df: pd.DataFrame,
@@ -112,19 +155,85 @@ def load_from_db(conn, data_type: str) -> Optional[pd.DataFrame]:
     """DB 연결 → 테이블·컬럼 선택 UI → 표준 DataFrame 반환"""
     import db_connector as dbc
 
+    st.markdown("**DB 탐색 — 데이터를 불러올 방법을 선택하세요**")
+
+    tab_preset, tab_builder, tab_custom = st.tabs(
+        ["⭐ LGE.COM 사전 정의 쿼리", "📋 테이블 선택", "✏️ SQL 직접 입력"]
+    )
+
+    # ── 탭 0: 사전 정의 쿼리 ──────────────────────────────────────────────
+    with tab_preset:
+        st.markdown(
+            "LGE.COM Q&A 및 리뷰 데이터에 최적화된 쿼리가 미리 준비되어 있습니다. "
+            "날짜 범위와 최대 행 수만 설정하고 실행하세요."
+        )
+
+        preset_type = st.radio(
+            "데이터 유형", ["Q&A (고객 문의)", "리뷰 (상품 후기)"],
+            horizontal=True, key="preset_type"
+        )
+
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            p_from = st.text_input("시작일 (YYYYMMDD)", value="20250101", key="p_from")
+        with col_d2:
+            p_to = st.text_input("종료일 (YYYYMMDD)", value="20260430", key="p_to")
+
+        is_qna = preset_type.startswith("Q&A")
+        raw_sql = (PRESET_QNA_SQL if is_qna else PRESET_REVIEW_SQL).format(
+            date_from=p_from.strip(), date_to=p_to.strip()
+        )
+        # 분류에 사용할 본문 컬럼 / ID 컬럼 / 날짜 컬럼
+        text_col   = "q_full_text" if is_qna else "rvw_cntn"
+        id_col     = "q_id"        if is_qna else "rvw_id"
+        dtype_val  = "Q&A"         if is_qna else "리뷰"
+
+        with st.expander("🔍 실행될 SQL 미리보기"):
+            st.code(raw_sql, language="sql")
+
+        preset_limit = st.number_input(
+            "최대 행 수", min_value=100, max_value=100000, value=10000, step=1000,
+            key="preset_limit",
+            help="처음에는 1,000~5,000건으로 테스트하고, 샘플 품질 확인 후 늘리세요."
+        )
+
+        if st.button("📥 쿼리 실행", key="preset_fetch", type="primary"):
+            with st.spinner("데이터를 불러오는 중..."):
+                df_raw = dbc.execute_custom_sql(conn, raw_sql, int(preset_limit))
+
+            if len(df_raw) == 0:
+                st.warning("조회 결과가 0건입니다. 날짜 범위 또는 조건을 확인해주세요.")
+            else:
+                st.success(f"✅ {len(df_raw):,}건 불러왔습니다.")
+                st.markdown("**미리보기 (상위 5행)**")
+                st.dataframe(df_raw.head(5), use_container_width=True)
+
+                if text_col not in df_raw.columns:
+                    st.error(
+                        f"'{text_col}' 컬럼을 찾을 수 없습니다. "
+                        "SQL이 정상 실행됐는지 확인하거나 'SQL 직접 입력' 탭을 이용하세요."
+                    )
+                else:
+                    return normalize_dataframe(
+                        df_raw, text_col, "mak_dt", "mdl_disp_nm", id_col, dtype_val
+                    )
+
+    # ── 이하 기존 탭들 ───────────────────────────────────────────────────
     schemas = dbc.list_schemas(conn)
-    if not schemas:
-        st.error("접근 가능한 스키마가 없습니다.")
-        return None
-
-    st.markdown("**DB 탐색 — 테이블·컬럼을 선택하세요**")
-
-    tab_builder, tab_custom = st.tabs(["📋 테이블 선택", "✏️ SQL 직접 입력"])
 
     with tab_builder:
+        if not schemas:
+            st.warning(
+                "스키마 목록을 자동으로 불러오지 못했습니다.\n\n"
+                "**원인:** 계정 권한 또는 Redshift 뷰 접근 제한\n\n"
+                "**해결 방법:** 'SQL 직접 입력' 탭 또는 '⭐ LGE.COM 사전 정의 쿼리' 탭을 사용하세요."
+            )
+        else:
+            pass  # 아래에서 처리
+
         col_a, col_b = st.columns(2)
         with col_a:
-            schema = st.selectbox("스키마 선택", schemas)
+            schema = st.selectbox("스키마 선택", schemas if schemas else ["(없음)"])
         tables = dbc.list_tables(conn, schema)
         if not tables:
             st.warning(f"'{schema}' 스키마에 테이블이 없습니다.")
