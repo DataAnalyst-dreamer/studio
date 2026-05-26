@@ -354,10 +354,12 @@ with st.sidebar:
         st.session_state["selected_model"] = selected_model
         st.markdown(
             '<div class="info-box">'
-            "<b>모델 추천 순서:</b><br>"
-            "① exaone3.5 — 한국어 최우수 (LG AI연구원)<br>"
-            "② qwen2.5 — 다국어 강함<br>"
-            "③ gemma2 — 경량 (저사양 PC용)"
+            "<b>모델 추천 순서 (RAM 기준):</b><br>"
+            "① <b>qwen2.5:3b</b> — RAM 4GB 이상 (권장)<br>"
+            "② <b>gemma2:2b</b> — RAM 3GB 이상 (초경량)<br>"
+            "③ <b>exaone3.5</b> — RAM 10GB 이상 (한국어 최우수)<br>"
+            "④ <b>qwen2.5:7b</b> — RAM 8GB 이상<br><br>"
+            "<b>RAM 부족 오류 시:</b> <code>ollama pull qwen2.5:3b</code>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -570,15 +572,39 @@ with tab_classify:
                 if final:
                     st.json(final)
 
-                st.markdown(
-                    "---\n"
-                    "**원본 응답이 비어있거나 오류가 있다면:**\n"
-                    "- `ollama serve` 재실행 후 다시 시도\n"
-                    "- 사이드바에서 다른 모델 선택\n\n"
-                    "**원본 응답은 있지만 파싱 실패라면:**\n"
-                    "- 모델이 JSON 형식을 지키지 않는 것 → 다른 모델 시도\n"
-                    "- exaone3.5 권장: `ollama pull exaone3.5`"
-                )
+                # RAM 오류 감지 (unable to allocate CPU buffer 등)
+                err_lower = err.lower() if err else ""
+                is_ram_error = any(kw in err_lower for kw in [
+                    "allocate", "cpu buffer", "out of memory", "oom",
+                    "memory", "terminated", "panic",
+                ])
+
+                if is_ram_error:
+                    st.error(
+                        "🔴 **RAM 부족 오류** — 현재 모델을 실행할 메모리가 부족합니다.\n\n"
+                        "**해결 방법 (PowerShell/터미널):**\n"
+                        "```powershell\n"
+                        "ollama pull qwen2.5:3b\n"
+                        "ollama run qwen2.5:3b \"테스트\"\n"
+                        "```\n"
+                        "설치 후 사이드바 모델 목록에서 `qwen2.5:3b` 또는 `gemma2:2b`로 변경하세요.\n\n"
+                        "| 모델 | 필요 RAM | 한국어 |  \n"
+                        "|------|----------|--------|  \n"
+                        "| qwen2.5:3b | 4GB | 양호 |  \n"
+                        "| gemma2:2b | 3GB | 보통 |  \n"
+                        "| qwen2.5:7b | 8GB | 우수 |  \n"
+                        "| exaone3.5 | 10GB | 최우수 |  \n"
+                    )
+                else:
+                    st.markdown(
+                        "---\n"
+                        "**원본 응답이 비어있거나 오류가 있다면:**\n"
+                        "- `ollama serve` 재실행 후 다시 시도\n"
+                        "- 사이드바에서 다른 모델 선택\n\n"
+                        "**원본 응답은 있지만 파싱 실패라면:**\n"
+                        "- 모델이 JSON 형식을 지키지 않는 것 → 다른 모델 시도\n"
+                        "- 권장 소형 모델: `ollama pull qwen2.5:3b`"
+                    )
 
         # ── 샘플 검증 ──
         st.markdown("### 🔬 샘플 검증 (권장)")
@@ -914,7 +940,11 @@ with tab_help:
 
 **2단계 — Ollama 설치 및 모델 다운로드**
 1. https://ollama.com 에서 Windows용 설치 파일을 다운로드해 실행합니다.
-2. 설치 후 터미널에서:
+2. 설치 후 터미널에서 (RAM 8GB 미만이면 qwen2.5:3b 권장):
+```
+ollama pull qwen2.5:3b
+```
+RAM이 10GB 이상이면 한국어 성능이 더 좋은 exaone3.5 사용 가능:
 ```
 ollama pull exaone3.5
 ```
@@ -955,11 +985,13 @@ streamlit run app.py
 | 오류 상황 | 해결 방법 |
 |-----------|-----------|
 | "Ollama 미실행" | 터미널에서 `ollama serve` 실행 후 새로고침 |
-| 설치된 모델 없음 | `ollama pull exaone3.5` 실행 후 새로고침 |
+| 설치된 모델 없음 | `ollama pull qwen2.5:3b` 실행 후 새로고침 |
+| **HTTP 500 / RAM 부족** | **`ollama pull qwen2.5:3b` 으로 작은 모델 사용** |
+| unable to allocate CPU buffer | RAM 부족. qwen2.5:3b (4GB) 또는 gemma2:2b (3GB) 사용 |
 | DB 연결 실패 | .env 파일 접속 정보 확인. 방화벽/VPN 상태 확인 |
 | 한글 깨짐 | CSV는 UTF-8 또는 CP949 저장. Excel 사용 권장 |
 | JSON 파싱 실패 | 자동 "분류실패" 처리됨. 모델 변경 또는 본문 확인 |
-| 분류가 너무 느림 | 더 작은 모델 선택 (qwen2.5:7b, gemma2) |
+| 분류가 너무 느림 | 더 작은 모델 선택 (qwen2.5:3b, gemma2:2b) |
 """
         )
 
