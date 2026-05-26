@@ -303,6 +303,7 @@ def _init_state():
         "db_driver":        None,
         "selected_model":   None,
         "confidence_threshold": 75,
+        "_db_preview":      None,   # DB 조회 결과 임시 보관 (버튼 타이밍 문제 해결)
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -470,14 +471,22 @@ with tab_input:
                     st.error(msg)
 
             if st.session_state["db_conn"]:
-                df = dl.load_from_db(st.session_state["db_conn"], data_type)
-                if df is not None and len(df) > 0:
-                    st.success(f"✅ {len(df):,}건 로드 완료")
+                # load_from_db는 "쿼리 실행" 버튼을 클릭한 렌더링에서만 DataFrame을 반환함.
+                # "분류 준비 완료" 버튼 클릭 시 스크립트가 재실행되면 None이 반환되므로,
+                # 결과를 session_state에 캐시해 두고 캐시에서 읽는다.
+                newly_loaded = dl.load_from_db(st.session_state["db_conn"], data_type)
+                if newly_loaded is not None and len(newly_loaded) > 0:
+                    st.session_state["_db_preview"] = newly_loaded
+
+                preview_df = st.session_state.get("_db_preview")
+                if preview_df is not None:
+                    st.success(f"✅ {len(preview_df):,}건 로드 완료 — 아래 버튼을 클릭해 분류 단계로 진행하세요.")
                     if st.button("💾 이 데이터로 분류 준비 완료", type="primary", key="db_ready"):
-                        st.session_state["standard_df"] = df
+                        st.session_state["standard_df"] = preview_df
+                        st.session_state["_db_preview"] = None
                         st.session_state["result_df"]   = None
                         clear_checkpoint()
-                        st.success("2단계 탭에서 분류를 시작할 수 있습니다.")
+                        st.rerun()
 
 
 # ══════════════════════════════════════════════
