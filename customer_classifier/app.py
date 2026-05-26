@@ -532,6 +532,54 @@ with tab_classify:
 
         st.markdown("---")
 
+        # ── 진단 도구 ──
+        with st.expander("🔧 분류 진단 — 결과가 모두 0이거나 이상할 때 먼저 실행하세요"):
+            st.markdown(
+                "1건만 분류해 Ollama 응답을 그대로 보여줍니다. "
+                "결과가 모두 0이면 여기서 원인을 확인하세요."
+            )
+            if st.button("🔧 진단 테스트 (1건)", key="diag_btn"):
+                test_text = std_df["text"].iloc[0]
+                st.markdown(f"**테스트 본문:** `{test_text[:300]}`")
+                with st.spinner("Ollama에 요청 중..."):
+                    diag = clf.diagnose_one(test_text, model)
+
+                c_http, c_err = st.columns(2)
+                with c_http:
+                    st.metric("HTTP 상태 코드", diag.get("http_status", "N/A"))
+                with c_err:
+                    err = diag.get("ollama_error", "")
+                    if err:
+                        st.error(f"Ollama 오류: {err}")
+                    else:
+                        st.success("Ollama 오류 없음")
+
+                st.markdown("**Ollama 원본 응답 (raw)**")
+                raw = diag.get("raw_response", "")
+                st.code(raw if raw else "(응답 없음)", language="json")
+
+                st.markdown("**파싱된 JSON**")
+                parsed = diag.get("parsed_json")
+                if parsed:
+                    st.json(parsed)
+                else:
+                    st.warning("JSON 파싱 실패 — 위 원본 응답을 확인하세요.")
+
+                st.markdown("**최종 분류 결과**")
+                final = diag.get("final_result")
+                if final:
+                    st.json(final)
+
+                st.markdown(
+                    "---\n"
+                    "**원본 응답이 비어있거나 오류가 있다면:**\n"
+                    "- `ollama serve` 재실행 후 다시 시도\n"
+                    "- 사이드바에서 다른 모델 선택\n\n"
+                    "**원본 응답은 있지만 파싱 실패라면:**\n"
+                    "- 모델이 JSON 형식을 지키지 않는 것 → 다른 모델 시도\n"
+                    "- exaone3.5 권장: `ollama pull exaone3.5`"
+                )
+
         # ── 샘플 검증 ──
         st.markdown("### 🔬 샘플 검증 (권장)")
         st.markdown(
@@ -569,11 +617,25 @@ with tab_classify:
         if sample_result is not None:
             st.markdown("**샘플 분류 결과**")
             counts = sample_result["분류"].value_counts()
-            c1, c2, c3, c4 = st.columns(4)
-            for col_w, cat in zip([c1, c2, c3, c4], ["실패수요", "가치수요", "기타", "판단보류"]):
+            total_sample = len(sample_result)
+            fail_n = counts.get("분류실패", 0)
+
+            # 분류실패가 절반 이상이면 경고
+            if fail_n > total_sample * 0.5:
+                st.warning(
+                    f"⚠️ 분류실패가 {fail_n}건 ({fail_n/total_sample*100:.0f}%)입니다. "
+                    "위 **🔧 진단 도구**를 실행해 원인을 확인하세요."
+                )
+
+            # 5개 카드 (분류실패 포함)
+            c1, c2, c3, c4, c5 = st.columns(5)
+            for col_w, cat in zip(
+                [c1, c2, c3, c4, c5],
+                ["실패수요", "가치수요", "기타", "판단보류", "분류실패"],
+            ):
                 with col_w:
                     n   = counts.get(cat, 0)
-                    pct = n / len(sample_result) * 100
+                    pct = n / total_sample * 100
                     st.markdown(
                         f'<div class="metric-card">'
                         f'<div class="m-label">{CATEGORY_LABELS[cat]}</div>'
@@ -581,6 +643,8 @@ with tab_classify:
                         f'<div class="m-pct">{pct:.1f}%</div></div>',
                         unsafe_allow_html=True,
                     )
+
+            st.markdown(f"전체 샘플: **{total_sample}건**")
             st.dataframe(
                 sample_result[["text", "분류", "세부사유", "확신도"]].head(20),
                 use_container_width=True,
