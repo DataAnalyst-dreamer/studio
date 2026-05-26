@@ -98,6 +98,15 @@ def _ollama_generate(model: str, prompt: str, timeout: int = 180) -> str:
             err_msg = f"HTTP {resp.status_code}"
 
         if resp.status_code == 500:
+            err_lower = err_msg.lower()
+            is_ram = any(k in err_lower for k in ["allocate", "buffer", "memory", "terminated", "panic"])
+            if is_ram:
+                raise requests.HTTPError(
+                    f"HTTP 500 — RAM 부족으로 모델을 실행할 수 없습니다. "
+                    f"'ollama pull qwen2.5:3b' 으로 더 작은 모델을 설치한 뒤 사이드바에서 변경하세요. "
+                    f"(exaone3.5는 RAM 10GB 이상 필요, qwen2.5:3b는 4GB로 동작)\n"
+                    f"Ollama 오류: {err_msg}"
+                )
             raise requests.HTTPError(
                 f"HTTP 500 — 모델 실행 실패. "
                 f"터미널에서 'ollama run {model}' 을 직접 실행해 모델이 정상 동작하는지 확인하세요. "
