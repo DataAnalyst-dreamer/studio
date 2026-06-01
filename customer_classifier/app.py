@@ -15,6 +15,8 @@ import data_loader as dl
 import db_connector as dbc
 from utils import (
     CATEGORY_LABELS,
+    FAILURE_SUBCATEGORIES,
+    VALUE_SUBCATEGORIES,
     clear_checkpoint,
     load_checkpoint,
     now_str,
@@ -671,8 +673,9 @@ with tab_classify:
                     )
 
             st.markdown(f"전체 샘플: **{total_sample}건**")
+            sample_cols = [c for c in ["text", "분류", "세부분류", "세부사유", "확신도"] if c in sample_result.columns]
             st.dataframe(
-                sample_result[["text", "분류", "세부사유", "확신도"]].head(20),
+                sample_result[sample_cols].head(20),
                 use_container_width=True,
             )
 
@@ -861,13 +864,101 @@ with tab_result:
         except Exception:
             pass
 
+    # ── 세부분류 분석 (과제 도출용) ──
+    if "세부분류" in result_df.columns:
+        st.markdown('<div class="section-title">🎯 세부분류 분석 — 개선 과제 도출</div>', unsafe_allow_html=True)
+
+        sub_col1, sub_col2 = st.columns(2)
+
+        with sub_col1:
+            fd = result_df[result_df["분류"] == "실패수요"].copy()
+            if len(fd) > 0:
+                # 실패수요 세부분류 순위표
+                sub_counts = fd["세부분류"].value_counts().reset_index()
+                sub_counts.columns = ["세부분류", "건수"]
+                sub_counts["설명"] = sub_counts["세부분류"].map(FAILURE_SUBCATEGORIES).fillna("")
+                sub_counts["비율"] = (sub_counts["건수"] / len(fd) * 100).round(1).astype(str) + "%"
+                sub_counts["과제 우선순위"] = range(1, len(sub_counts) + 1)
+
+                err_color = _C("err")
+                fig_fail = px.bar(
+                    sub_counts, x="건수", y="세부분류", orientation="h",
+                    title=f"실패수요 세부분류 ({len(fd):,}건)",
+                    color_discrete_sequence=[err_color],
+                    text="건수",
+                )
+                fig_fail.update_layout(
+                    paper_bgcolor=PL["paper_bgcolor"],
+                    plot_bgcolor=PL["plot_bgcolor"],
+                    font_color=PL["font_color"],
+                    yaxis={"autorange": "reversed", "gridcolor": PL["gridcolor"]},
+                    xaxis={"gridcolor": PL["gridcolor"]},
+                    title_font_size=14,
+                    margin={"l": 10, "r": 10},
+                )
+                st.plotly_chart(fig_fail, use_container_width=True)
+
+                st.markdown("**실패수요 개선 과제 우선순위**")
+                st.dataframe(
+                    sub_counts[["과제 우선순위", "세부분류", "설명", "건수", "비율"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("실패수요 데이터가 없습니다.")
+
+        with sub_col2:
+            vd = result_df[result_df["분류"] == "가치수요"].copy()
+            if len(vd) > 0:
+                sub_counts_v = vd["세부분류"].value_counts().reset_index()
+                sub_counts_v.columns = ["세부분류", "건수"]
+                sub_counts_v["설명"] = sub_counts_v["세부분류"].map(VALUE_SUBCATEGORIES).fillna("")
+                sub_counts_v["비율"] = (sub_counts_v["건수"] / len(vd) * 100).round(1).astype(str) + "%"
+                sub_counts_v["기회 우선순위"] = range(1, len(sub_counts_v) + 1)
+
+                ok_color = _C("ok")
+                fig_val = px.bar(
+                    sub_counts_v, x="건수", y="세부분류", orientation="h",
+                    title=f"가치수요 세부분류 ({len(vd):,}건)",
+                    color_discrete_sequence=[ok_color],
+                    text="건수",
+                )
+                fig_val.update_layout(
+                    paper_bgcolor=PL["paper_bgcolor"],
+                    plot_bgcolor=PL["plot_bgcolor"],
+                    font_color=PL["font_color"],
+                    yaxis={"autorange": "reversed", "gridcolor": PL["gridcolor"]},
+                    xaxis={"gridcolor": PL["gridcolor"]},
+                    title_font_size=14,
+                    margin={"l": 10, "r": 10},
+                )
+                st.plotly_chart(fig_val, use_container_width=True)
+
+                st.markdown("**가치수요 대응 기회 우선순위**")
+                st.dataframe(
+                    sub_counts_v[["기회 우선순위", "세부분류", "설명", "건수", "비율"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("가치수요 데이터가 없습니다.")
+
     # ── 검토·수정 표 ──
     st.markdown('<div class="section-title">🔎 검토 및 수정</div>', unsafe_allow_html=True)
 
-    review_filter = st.radio(
+    # 실패수요 세부분류 필터 옵션
+    fail_sub_opts = [f"실패:{s}" for s in FAILURE_SUBCATEGORIES]
+    val_sub_opts  = [f"가치:{s}" for s in VALUE_SUBCATEGORIES]
+    review_filter = st.selectbox(
         "표시 필터",
-        ["전체", f"확신도 낮음 ({confidence_threshold} 미만)", "실패수요", "가치수요", "기타", "판단보류", "분류실패"],
-        horizontal=True,
+        ["전체", f"확신도 낮음 ({confidence_threshold} 미만)",
+         "── 대분류 ──",
+         "실패수요", "가치수요", "기타", "판단보류", "분류실패",
+         "── 실패수요 세부분류 ──",
+         *fail_sub_opts,
+         "── 가치수요 세부분류 ──",
+         *val_sub_opts,
+        ],
     )
 
     filtered = result_df.copy()
@@ -875,18 +966,29 @@ with tab_result:
         filtered = filtered[filtered["확신도"].astype(float) < confidence_threshold]
     elif review_filter in ["실패수요", "가치수요", "기타", "판단보류", "분류실패"]:
         filtered = filtered[filtered["분류"] == review_filter]
+    elif review_filter.startswith("실패:") or review_filter.startswith("가치:"):
+        _, sub = review_filter.split(":", 1)
+        filtered = filtered[filtered.get("세부분류", pd.Series(dtype=str)) == sub] if "세부분류" in filtered.columns else filtered
+    elif review_filter.startswith("──"):
+        pass  # 구분선 선택 시 전체 표시
 
     st.markdown(f"표시 중: **{len(filtered):,}건**")
 
     category_options = ["실패수요", "가치수요", "기타", "판단보류", "분류실패"]
-    display_cols     = ["inquiry_id", "data_type", "text", "분류", "세부사유", "확신도"]
-    available_cols   = [c for c in display_cols if c in filtered.columns]
+    all_subcat_opts  = (
+        list(FAILURE_SUBCATEGORIES.keys()) +
+        list(VALUE_SUBCATEGORIES.keys()) +
+        ["해당없음"]
+    )
+    display_cols   = ["inquiry_id", "data_type", "text", "분류", "세부분류", "세부사유", "확신도"]
+    available_cols = [c for c in display_cols if c in filtered.columns]
 
     if len(filtered) > 0:
         edited_df = st.data_editor(
             filtered[available_cols],
             column_config={
                 "분류":       st.column_config.SelectboxColumn("분류", options=category_options, required=True),
+                "세부분류":   st.column_config.SelectboxColumn("세부분류", options=all_subcat_opts),
                 "text":       st.column_config.TextColumn("본문", width="large"),
                 "확신도":     st.column_config.NumberColumn("확신도", min_value=0, max_value=100, format="%d"),
                 "inquiry_id": st.column_config.TextColumn("ID", width="small"),
@@ -902,6 +1004,8 @@ with tab_result:
             for idx, row in edited_df.iterrows():
                 if idx in filtered.index:
                     st.session_state["result_df"].at[idx, "분류"] = row["분류"]
+                    if "세부분류" in row:
+                        st.session_state["result_df"].at[idx, "세부분류"] = row["세부분류"]
             st.success("수정 내용이 결과에 반영됐습니다.")
             st.rerun()
     else:
