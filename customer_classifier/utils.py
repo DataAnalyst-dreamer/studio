@@ -150,6 +150,35 @@ def now_str() -> str:
     return datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
+def _first_json_object(text: str) -> Optional[str]:
+    """첫 번째 '{' 부터 짝이 맞는 '}' 까지의 완전한 JSON 객체 문자열을 반환.
+    뒤에 깨진 텍스트(예: '}, "확신도":85}')가 붙어 있어도 올바른 객체만 잘라낸다."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if esc:
+            esc = False
+            continue
+        if c == "\\":
+            esc = True
+            continue
+        if c == '"':
+            in_str = not in_str
+        elif not in_str:
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+    return None
+
+
 def safe_json_parse(text: str) -> Optional[dict]:
     """LLM 응답에서 JSON 부분만 추출해 파싱"""
     text = text.strip()
@@ -163,12 +192,22 @@ def safe_json_parse(text: str) -> Optional[dict]:
             if p.startswith("{"):
                 text = p
                 break
-    # 중괄호 범위 추출
+    # 1) 짝이 맞는 첫 객체 추출 시도 (뒤쪽 깨진 텍스트 무시)
+    obj = _first_json_object(text)
+    if obj:
+        try:
+            parsed = json.loads(obj)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    # 2) 마지막 수단: 처음 '{' ~ 마지막 '}'
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1:
         return None
     try:
-        return json.loads(text[start : end + 1])
+        parsed = json.loads(text[start : end + 1])
+        return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         return None
