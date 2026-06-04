@@ -15,6 +15,8 @@ import data_loader as dl
 import db_connector as dbc
 from utils import (
     CATEGORY_LABELS,
+    FAILURE_SUBCATEGORIES,
+    VALUE_SUBCATEGORIES,
     clear_checkpoint,
     load_checkpoint,
     now_str,
@@ -671,8 +673,9 @@ with tab_classify:
                     )
 
             st.markdown(f"전체 샘플: **{total_sample}건**")
+            sample_cols = [c for c in ["text", "분류", "세부분류", "세부사유", "확신도"] if c in sample_result.columns]
             st.dataframe(
-                sample_result[["text", "분류", "세부사유", "확신도"]].head(20),
+                sample_result[sample_cols].head(20),
                 use_container_width=True,
             )
 
@@ -861,13 +864,101 @@ with tab_result:
         except Exception:
             pass
 
+    # ── 세부분류 분석 (과제 도출용) ──
+    if "세부분류" in result_df.columns:
+        st.markdown('<div class="section-title">🎯 세부분류 분석 — 개선 과제 도출</div>', unsafe_allow_html=True)
+
+        sub_col1, sub_col2 = st.columns(2)
+
+        with sub_col1:
+            fd = result_df[result_df["분류"] == "실패수요"].copy()
+            if len(fd) > 0:
+                # 실패수요 세부분류 순위표
+                sub_counts = fd["세부분류"].value_counts().reset_index()
+                sub_counts.columns = ["세부분류", "건수"]
+                sub_counts["설명"] = sub_counts["세부분류"].map(FAILURE_SUBCATEGORIES).fillna("")
+                sub_counts["비율"] = (sub_counts["건수"] / len(fd) * 100).round(1).astype(str) + "%"
+                sub_counts["과제 우선순위"] = range(1, len(sub_counts) + 1)
+
+                err_color = _C("err")
+                fig_fail = px.bar(
+                    sub_counts, x="건수", y="세부분류", orientation="h",
+                    title=f"실패수요 세부분류 ({len(fd):,}건)",
+                    color_discrete_sequence=[err_color],
+                    text="건수",
+                )
+                fig_fail.update_layout(
+                    paper_bgcolor=PL["paper_bgcolor"],
+                    plot_bgcolor=PL["plot_bgcolor"],
+                    font_color=PL["font_color"],
+                    yaxis={"autorange": "reversed", "gridcolor": PL["gridcolor"]},
+                    xaxis={"gridcolor": PL["gridcolor"]},
+                    title_font_size=14,
+                    margin={"l": 10, "r": 10},
+                )
+                st.plotly_chart(fig_fail, use_container_width=True)
+
+                st.markdown("**실패수요 개선 과제 우선순위**")
+                st.dataframe(
+                    sub_counts[["과제 우선순위", "세부분류", "설명", "건수", "비율"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("실패수요 데이터가 없습니다.")
+
+        with sub_col2:
+            vd = result_df[result_df["분류"] == "가치수요"].copy()
+            if len(vd) > 0:
+                sub_counts_v = vd["세부분류"].value_counts().reset_index()
+                sub_counts_v.columns = ["세부분류", "건수"]
+                sub_counts_v["설명"] = sub_counts_v["세부분류"].map(VALUE_SUBCATEGORIES).fillna("")
+                sub_counts_v["비율"] = (sub_counts_v["건수"] / len(vd) * 100).round(1).astype(str) + "%"
+                sub_counts_v["기회 우선순위"] = range(1, len(sub_counts_v) + 1)
+
+                ok_color = _C("ok")
+                fig_val = px.bar(
+                    sub_counts_v, x="건수", y="세부분류", orientation="h",
+                    title=f"가치수요 세부분류 ({len(vd):,}건)",
+                    color_discrete_sequence=[ok_color],
+                    text="건수",
+                )
+                fig_val.update_layout(
+                    paper_bgcolor=PL["paper_bgcolor"],
+                    plot_bgcolor=PL["plot_bgcolor"],
+                    font_color=PL["font_color"],
+                    yaxis={"autorange": "reversed", "gridcolor": PL["gridcolor"]},
+                    xaxis={"gridcolor": PL["gridcolor"]},
+                    title_font_size=14,
+                    margin={"l": 10, "r": 10},
+                )
+                st.plotly_chart(fig_val, use_container_width=True)
+
+                st.markdown("**가치수요 대응 기회 우선순위**")
+                st.dataframe(
+                    sub_counts_v[["기회 우선순위", "세부분류", "설명", "건수", "비율"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("가치수요 데이터가 없습니다.")
+
     # ── 검토·수정 표 ──
     st.markdown('<div class="section-title">🔎 검토 및 수정</div>', unsafe_allow_html=True)
 
-    review_filter = st.radio(
+    # 실패수요 세부분류 필터 옵션
+    fail_sub_opts = [f"실패:{s}" for s in FAILURE_SUBCATEGORIES]
+    val_sub_opts  = [f"가치:{s}" for s in VALUE_SUBCATEGORIES]
+    review_filter = st.selectbox(
         "표시 필터",
-        ["전체", f"확신도 낮음 ({confidence_threshold} 미만)", "실패수요", "가치수요", "기타", "판단보류", "분류실패"],
-        horizontal=True,
+        ["전체", f"확신도 낮음 ({confidence_threshold} 미만)",
+         "── 대분류 ──",
+         "실패수요", "가치수요", "기타", "판단보류", "분류실패",
+         "── 실패수요 세부분류 ──",
+         *fail_sub_opts,
+         "── 가치수요 세부분류 ──",
+         *val_sub_opts,
+        ],
     )
 
     filtered = result_df.copy()
@@ -875,18 +966,29 @@ with tab_result:
         filtered = filtered[filtered["확신도"].astype(float) < confidence_threshold]
     elif review_filter in ["실패수요", "가치수요", "기타", "판단보류", "분류실패"]:
         filtered = filtered[filtered["분류"] == review_filter]
+    elif review_filter.startswith("실패:") or review_filter.startswith("가치:"):
+        _, sub = review_filter.split(":", 1)
+        filtered = filtered[filtered.get("세부분류", pd.Series(dtype=str)) == sub] if "세부분류" in filtered.columns else filtered
+    elif review_filter.startswith("──"):
+        pass  # 구분선 선택 시 전체 표시
 
     st.markdown(f"표시 중: **{len(filtered):,}건**")
 
     category_options = ["실패수요", "가치수요", "기타", "판단보류", "분류실패"]
-    display_cols     = ["inquiry_id", "data_type", "text", "분류", "세부사유", "확신도"]
-    available_cols   = [c for c in display_cols if c in filtered.columns]
+    all_subcat_opts  = (
+        list(FAILURE_SUBCATEGORIES.keys()) +
+        list(VALUE_SUBCATEGORIES.keys()) +
+        ["해당없음"]
+    )
+    display_cols   = ["inquiry_id", "data_type", "text", "분류", "세부분류", "세부사유", "확신도"]
+    available_cols = [c for c in display_cols if c in filtered.columns]
 
     if len(filtered) > 0:
         edited_df = st.data_editor(
             filtered[available_cols],
             column_config={
                 "분류":       st.column_config.SelectboxColumn("분류", options=category_options, required=True),
+                "세부분류":   st.column_config.SelectboxColumn("세부분류", options=all_subcat_opts),
                 "text":       st.column_config.TextColumn("본문", width="large"),
                 "확신도":     st.column_config.NumberColumn("확신도", min_value=0, max_value=100, format="%d"),
                 "inquiry_id": st.column_config.TextColumn("ID", width="small"),
@@ -902,6 +1004,8 @@ with tab_result:
             for idx, row in edited_df.iterrows():
                 if idx in filtered.index:
                     st.session_state["result_df"].at[idx, "분류"] = row["분류"]
+                    if "세부분류" in row:
+                        st.session_state["result_df"].at[idx, "세부분류"] = row["세부분류"]
             st.success("수정 내용이 결과에 반영됐습니다.")
             st.rerun()
     else:
@@ -992,6 +1096,50 @@ streamlit run app.py
 | 한글 깨짐 | CSV는 UTF-8 또는 CP949 저장. Excel 사용 권장 |
 | JSON 파싱 실패 | 자동 "분류실패" 처리됨. 모델 변경 또는 본문 확인 |
 | 분류가 너무 느림 | 더 작은 모델 선택 (qwen2.5:3b, gemma2:2b) |
+"""
+        )
+
+    with st.expander("🧭 실패수요 vs 가치수요 — 분류 기준"):
+        st.markdown(
+            """
+이 프로그램의 핵심은 고객 문의를 **실패수요**와 **가치수요**로 나누는 것입니다.
+
+#### 판단 공식
+> **"회사가 일을 완벽히 했어도 고객이 이 질문을 했을까?"**
+> - **예** (사고 싶거나 쓰려고 자연스럽게 묻는 것) → **가치수요**
+> - **아니오** (문제·오류·누락 때문에 어쩔 수 없이 묻는 것) → **실패수요**
+
+#### 🟢 가치수요 (회사가 원하는 좋은 수요) — 영업·마케팅 기회
+| 세부분류 | 예시 |
+|----------|------|
+| 구매상담 | 모델 추천, 재입고/구매 가능 여부 |
+| 스펙/호환성 | "호환되나요?", 치수·전자파·케이블 규격 |
+| 가격/혜택 | "55% 할인 맞나요?", 포인트·캐시백 |
+| 설치조건 | "기사님이 전기공사도 해주나요?", 설치비 |
+| 사용방법 | 사용법·설정·기능 동작 |
+| AS사전문의 | 보증기간·부품 구매 방법 (고장 전) |
+| 기타가치 | 색상 옵션·구성품 |
+
+#### 🔴 실패수요 (회사 실패로 생긴 불필요한 수요) — 개선 과제
+| 세부분류 | 예시 |
+|----------|------|
+| 배송지연 | "배송이 너무 늦어요" |
+| 오배송/파손 | 다른 물건·파손품 수령 |
+| 결제/환불오류 | 결제 실패·환불 지연 |
+| 상품정보불일치 | 출시연도·가격이 서로 다르게 표기 |
+| 설치/기사미흡 | 기사 미방문·설치 불량 |
+| CS응대불만 | 상담 답변이 틀림·서로 다름 |
+| AS처리지연 | 제품 고장으로 수리 필요 |
+| 시스템오류 | 예약날짜 안뜸, 시리얼 등록 불가 |
+| 기타실패 | 그 외 회사 실패 문의 |
+
+#### 헷갈리기 쉬운 경계
+- "재입고 되나요?" → 살 의향이 있는 **가치수요(구매상담)** (실패수요 아님)
+- "전자파 얼마나 나오나요?" → 제품 사양 확인 **가치수요(스펙)**
+- "리모콘이 고장났어요" → 제품 결함 **실패수요(AS처리지연)**
+- "예약날짜가 안떠서 구매를 못해요" → 주문 시스템 **실패수요(시스템오류)**
+
+> 결과가 애매하면 3단계 **검토 및 수정** 화면에서 사람이 직접 바로잡을 수 있습니다.
 """
         )
 

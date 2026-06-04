@@ -31,6 +31,38 @@ CATEGORY_COLORS = {
     "분류실패": "#677483",
 }
 
+# ── 실패수요 세부분류 ──────────────────────────────────────────
+# 9개 항목 — 각각 독립적인 개선 과제로 연결 가능
+FAILURE_SUBCATEGORIES: dict[str, str] = {
+    "배송지연":       "배송 지연·추적 불가",
+    "오배송/파손":    "오배송·상품 파손",
+    "결제/환불오류":  "결제 오류·환불 지연",
+    "상품정보불일치": "상품 설명·사진·스펙 불일치",
+    "설치/기사미흡":  "설치 기사 미방문·설치 불량",
+    "CS응대불만":     "상담사 응대 불만·답변 지연",
+    "AS처리지연":     "A/S 접수·처리·수리 지연",
+    "시스템오류":     "앱·웹·주문 시스템 오류",
+    "기타실패":       "기타 실패수요",
+}
+
+# ── 가치수요 세부분류 ──────────────────────────────────────────
+# 7개 항목 — 영업·마케팅·상품 기획 과제로 연결 가능
+VALUE_SUBCATEGORIES: dict[str, str] = {
+    "구매상담":    "모델 추천·구매 의향 상담",
+    "스펙/호환성": "사이즈·스펙·호환성 문의",
+    "가격/혜택":   "할인·쿠폰·포인트·멤버십 문의",
+    "설치조건":    "설치 가능 여부·조건·비용 문의",
+    "사용방법":    "제품 사용법·설정·기능 문의",
+    "AS사전문의":  "보증 기간·A/S 절차 사전 확인",
+    "기타가치":    "기타 가치수요",
+}
+
+ALL_SUBCATEGORIES: dict[str, str] = {
+    **FAILURE_SUBCATEGORIES,
+    **VALUE_SUBCATEGORIES,
+    "해당없음": "해당 없음",
+}
+
 
 def detect_encoding(raw: bytes) -> str:
     result = chardet.detect(raw)
@@ -95,16 +127,56 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
                 "분류실패": "#DEE2E6",
             }
             for cat, bg in color_map.items():
-                fmt = workbook.add_format({"bg_color": bg})
+                fmt = workbook.add_format({"bg_color": bg, "border": 1})
                 for row_idx, val in enumerate(df["분류"], start=1):
                     if val == cat:
                         worksheet.write(row_idx, col_idx, val, fmt)
+
+        # 세부분류 컬럼 색상 (실패수요계 연분홍, 가치수요계 연녹색)
+        if "세부분류" in df.columns and "분류" in df.columns:
+            sub_col_idx = df.columns.get_loc("세부분류")
+            fmt_fail = workbook.add_format({"bg_color": "#FFF0F3", "border": 1})
+            fmt_val  = workbook.add_format({"bg_color": "#F0FFF4", "border": 1})
+            for row_idx, (cat, sub) in enumerate(zip(df["분류"], df["세부분류"]), start=1):
+                if cat == "실패수요":
+                    worksheet.write(row_idx, sub_col_idx, sub, fmt_fail)
+                elif cat == "가치수요":
+                    worksheet.write(row_idx, sub_col_idx, sub, fmt_val)
 
     return buf.getvalue()
 
 
 def now_str() -> str:
     return datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def _first_json_object(text: str) -> Optional[str]:
+    """첫 번째 '{' 부터 짝이 맞는 '}' 까지의 완전한 JSON 객체 문자열을 반환.
+    뒤에 깨진 텍스트(예: '}, "확신도":85}')가 붙어 있어도 올바른 객체만 잘라낸다."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(text)):
+        c = text[i]
+        if esc:
+            esc = False
+            continue
+        if c == "\\":
+            esc = True
+            continue
+        if c == '"':
+            in_str = not in_str
+        elif not in_str:
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start : i + 1]
+    return None
 
 
 def safe_json_parse(text: str) -> Optional[dict]:
@@ -120,12 +192,22 @@ def safe_json_parse(text: str) -> Optional[dict]:
             if p.startswith("{"):
                 text = p
                 break
-    # 중괄호 범위 추출
+    # 1) 짝이 맞는 첫 객체 추출 시도 (뒤쪽 깨진 텍스트 무시)
+    obj = _first_json_object(text)
+    if obj:
+        try:
+            parsed = json.loads(obj)
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    # 2) 마지막 수단: 처음 '{' ~ 마지막 '}'
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1:
         return None
     try:
-        return json.loads(text[start : end + 1])
+        parsed = json.loads(text[start : end + 1])
+        return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         return None
