@@ -23,19 +23,40 @@ class RedshiftError(Exception):
     """Redshift 접속/조회 단계에서 발생하는 사용자 노출용 오류."""
 
 
-class _InsecureSSLContext(_ssl.SSLContext):
+# 원본 SSLContext와 C 레벨 기반 클래스(_ssl._SSLContext)를 패치 전에 확보한다.
+_ORIG_SSLCONTEXT = _ssl.SSLContext
+_C_SSLCONTEXT = _ORIG_SSLCONTEXT.__mro__[1]  # _ssl._SSLContext (C getset 보유)
+
+
+class _InsecureSSLContext(_ORIG_SSLCONTEXT):  # type: ignore[misc, valid-type]
     """인증서 검증을 강제로 비활성화하는 SSLContext.
 
     redshift_connector는 sslmode가 verify-ca/verify-full일 때 항상
     CERT_REQUIRED로 검증한다. 사내 TLS 가로채기(self-signed 체인) 환경에서
-    QA 점검을 진행할 수 있도록, 검증 관련 속성 변경을 무력화한다.
+    QA 점검을 진행할 수 있도록 검증을 무력화한다.
     암호화는 유지되나 서버 신원 검증은 수행하지 않는다(운영 비권장).
+
+    - 생성 시점: C 레벨 디스크립터로 check_hostname=False, verify_mode=CERT_NONE
+      강제. (PROTOCOL_TLS_CLIENT로 생성돼 검증이 켜진 경우까지 확실히 끈다.)
+    - 이후: verify_mode/check_hostname 재설정 시도를 무시.
     """
 
+    def __init__(self, *args, **kwargs):
+        # protocol 인자는 __new__가 이미 소비하므로 __init__에는 넘기지 않는다.
+        super().__init__()
+        # 순서 중요: check_hostname을 먼저 끄지 않으면 CERT_NONE 설정이 거부된다.
+        try:
+            _C_SSLCONTEXT.check_hostname.__set__(self, False)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            _C_SSLCONTEXT.verify_mode.__set__(self, _ssl.CERT_NONE)
+        except Exception:  # noqa: BLE001
+            pass
+
     def __setattr__(self, name, value):
-        # verify_mode/check_hostname 변경 시도를 무시한다. 새로 생성된
-        # SSLContext의 보안 기본값(CERT_NONE, check_hostname=False)을 유지하여
-        # 검증을 비활성화한다. (base setter를 호출하지 않아 재귀를 피한다.)
+        # 이후의 verify_mode/check_hostname 재설정 시도를 무시한다.
+        # (Python 레벨 setter를 호출하지 않아 재귀를 피한다.)
         if name in ("verify_mode", "check_hostname"):
             return
         super().__setattr__(name, value)

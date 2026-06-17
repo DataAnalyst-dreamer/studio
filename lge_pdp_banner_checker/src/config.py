@@ -95,9 +95,9 @@ def load_config(dotenv_path: Optional[str] = None) -> AppConfig:
     동시성은 부하 방지를 위해 1~3 사이로 강제한다(PRD 12 / 비기능 요구사항).
     """
     if dotenv_path:
-        load_dotenv(dotenv_path, override=False)
+        load_dotenv(dotenv_path, override=True)
     else:
-        load_dotenv(override=False)
+        load_dotenv(override=True)
 
     ca_bundle = os.getenv("REDSHIFT_CA_BUNDLE", "").strip() or None
     redshift = RedshiftConfig(

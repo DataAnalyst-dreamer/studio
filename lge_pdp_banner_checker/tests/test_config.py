@@ -51,10 +51,24 @@ def test_insecure_ssl_context_disables_verification():
     import ssl
 
     with _insecure_ssl_patch():
-        from ssl import CERT_REQUIRED, SSLContext
+        from ssl import CERT_REQUIRED, SSLContext, PROTOCOL_TLS_CLIENT
 
-        ctx = SSLContext()
-        ctx.verify_mode = CERT_REQUIRED  # 무시되어야 함
-        ctx.check_hostname = True        # 무시되어야 함
-        assert ctx.verify_mode == ssl.CERT_NONE
-        assert ctx.check_hostname is False
+        # 1) bare SSLContext()에 검증을 켜려 해도 무시된다
+        bare = SSLContext()
+        bare.verify_mode = CERT_REQUIRED
+        bare.check_hostname = True
+        assert bare.verify_mode == ssl.CERT_NONE
+        assert bare.check_hostname is False
+
+        # 2) PROTOCOL_TLS_CLIENT로 생성돼 C 레벨에서 검증이 켜진 경우도 꺼진다
+        client = SSLContext(PROTOCOL_TLS_CLIENT)
+        assert client.verify_mode == ssl.CERT_NONE
+        assert client.check_hostname is False
+
+        # 3) create_default_context도 패치된 전역 SSLContext를 사용해 비활성화된다
+        default = ssl.create_default_context()
+        assert default.verify_mode == ssl.CERT_NONE
+        assert default.check_hostname is False
+
+    # 패치 해제 후 원복 확인
+    assert ssl.create_default_context().verify_mode == ssl.CERT_REQUIRED
