@@ -43,6 +43,9 @@ cp .env.example .env
 |------|------|
 | `REDSHIFT_HOST/PORT/DATABASE/USER/PASSWORD` | 접속 정보 (필수) |
 | `REDSHIFT_SSL` | SSL 사용 여부 (기본 true) |
+| `REDSHIFT_SSLMODE` | `verify-ca`(기본) / `verify-full` |
+| `REDSHIFT_CA_BUNDLE` | 사내 루트 CA 번들(.pem) 경로 (자가서명 체인 대응) |
+| `REDSHIFT_SSL_INSECURE` | 인증서 검증 우회 (사내 QA 한정, 기본 false) |
 | `DEFAULT_OUTPUT_DIR` | 리포트 저장 폴더 (기본 `outputs`) |
 | `DEFAULT_CONCURRENCY` | 동시성 (1~3 강제) |
 | `DEFAULT_TIMEOUT_MS` | URL당 timeout (기본 30000) |
@@ -59,6 +62,28 @@ streamlit run app.py
 
 Redshift 접근이 어려운 환경에서는 사이드바에서 **샘플 파일 업로드** 또는 **데모 샘플**로
 전처리·리포트 흐름을 점검할 수 있습니다.
+
+## SSL 인증서 오류 대응
+
+`Redshift 접속 실패 ... self-signed certificate in certificate chain` 오류는
+대부분 **사내 보안장비의 TLS 가로채기(SSL inspection)** 때문입니다. 다음 순서로 해결하세요.
+
+1. **(권장) 사내 루트 CA 신뢰 추가** — 보안팀에서 사내 루트 CA(.pem)를 받아 지정. 검증을 유지하므로 가장 안전합니다.
+   ```bash
+   REDSHIFT_CA_BUNDLE=/path/to/corp-root-ca.pem
+   ```
+2. **(사내 QA 한정) 검증 우회** — 암호화는 유지하되 서버 신원 검증을 생략합니다. 운영 환경 비권장.
+   ```bash
+   REDSHIFT_SSL_INSECURE=true
+   ```
+3. **평문 접속** — 클러스터가 비-SSL 접속을 허용하는 경우에만.
+   ```bash
+   REDSHIFT_SSL=false
+   ```
+
+> 참고: redshift_connector의 `ssl_insecure` 파라미터는 IAM IdP 인증서 전용이라
+> user/password 인증에는 적용되지 않습니다. 본 도구는 `REDSHIFT_SSL_INSECURE=true`일 때
+> DB 소켓 TLS 컨텍스트의 검증을 직접 비활성화합니다.
 
 ## 판정 기준
 
