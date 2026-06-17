@@ -49,6 +49,13 @@ class RedshiftConfig:
     user: str
     password: str
     ssl: bool = True
+    # 'verify-ca'(기본) 또는 'verify-full'. redshift_connector가 지원하는 값.
+    sslmode: str = "verify-ca"
+    # 사내 루트 CA 번들(.pem) 경로. 지정 시 신뢰 저장소에 추가된다.
+    ca_bundle: Optional[str] = None
+    # 사내 QA 환경에서 자가서명 인증서 체인 검증을 우회할 때 True.
+    # (운영 환경 비권장) 검증 없이 암호화만 수행한다.
+    ssl_insecure: bool = False
 
     def is_complete(self) -> bool:
         """필수 접속 정보가 모두 채워졌는지 확인한다."""
@@ -92,6 +99,7 @@ def load_config(dotenv_path: Optional[str] = None) -> AppConfig:
     else:
         load_dotenv(override=False)
 
+    ca_bundle = os.getenv("REDSHIFT_CA_BUNDLE", "").strip() or None
     redshift = RedshiftConfig(
         host=os.getenv("REDSHIFT_HOST", "").strip(),
         port=_to_int(os.getenv("REDSHIFT_PORT"), 5439),
@@ -99,6 +107,9 @@ def load_config(dotenv_path: Optional[str] = None) -> AppConfig:
         user=os.getenv("REDSHIFT_USER", "").strip(),
         password=os.getenv("REDSHIFT_PASSWORD", ""),
         ssl=_to_bool(os.getenv("REDSHIFT_SSL"), default=True),
+        sslmode=(os.getenv("REDSHIFT_SSLMODE", "").strip() or "verify-ca"),
+        ca_bundle=ca_bundle,
+        ssl_insecure=_to_bool(os.getenv("REDSHIFT_SSL_INSECURE"), default=False),
     )
 
     concurrency = _to_int(os.getenv("DEFAULT_CONCURRENCY"), 3)
