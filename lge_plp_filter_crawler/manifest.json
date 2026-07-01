@@ -1,0 +1,268 @@
+[
+  {
+    "대분류": "TV/오디오",
+    "카테고리": "TV",
+    "key": "TV/오디오 > TV",
+    "url": "https://www.lge.co.kr/tvs",
+    "status": "done"
+  },
+  {
+    "대분류": "TV/오디오",
+    "카테고리": "스탠바이미",
+    "key": "TV/오디오 > 스탠바이미",
+    "url": "https://www.lge.co.kr/stan-by-me",
+    "status": "pending"
+  },
+  {
+    "대분류": "TV/오디오",
+    "카테고리": "프로젝터",
+    "key": "TV/오디오 > 프로젝터",
+    "url": "https://www.lge.co.kr/projectors",
+    "status": "done"
+  },
+  {
+    "대분류": "TV/오디오",
+    "카테고리": "오디오",
+    "key": "TV/오디오 > 오디오",
+    "url": "https://www.lge.co.kr/home-audio",
+    "status": "pending"
+  },
+  {
+    "대분류": "TV/오디오",
+    "카테고리": "사이니지",
+    "key": "TV/오디오 > 사이니지",
+    "url": "https://www.lge.co.kr/displays",
+    "status": "pending"
+  },
+  {
+    "대분류": "TV/오디오",
+    "카테고리": "마인드웰니스",
+    "key": "TV/오디오 > 마인드웰니스",
+    "url": "https://www.lge.co.kr/mindwellness",
+    "status": "pending"
+  },
+  {
+    "대분류": "PC/모니터",
+    "카테고리": "노트북",
+    "key": "PC/모니터 > 노트북",
+    "url": "https://www.lge.co.kr/notebook",
+    "status": "done"
+  },
+  {
+    "대분류": "PC/모니터",
+    "카테고리": "일체형/데스크톱/태블릿",
+    "key": "PC/모니터 > 일체형/데스크톱/태블릿",
+    "url": "https://www.lge.co.kr/all-in-one-pc-and-desktop",
+    "status": "pending"
+  },
+  {
+    "대분류": "PC/모니터",
+    "카테고리": "모니터",
+    "key": "PC/모니터 > 모니터",
+    "url": "https://www.lge.co.kr/monitors",
+    "status": "pending"
+  },
+  {
+    "대분류": "주방가전",
+    "카테고리": "냉장고",
+    "key": "주방가전 > 냉장고",
+    "url": "https://www.lge.co.kr/refrigerators",
+    "status": "done"
+  },
+  {
+    "대분류": "주방가전",
+    "카테고리": "컨버터블 패키지",
+    "key": "주방가전 > 컨버터블 패키지",
+    "url": "https://www.lge.co.kr/convertible-refrigerators",
+    "status": "done"
+  },
+  {
+    "대분류": "주방가전",
+    "카테고리": "김치냉장고",
+    "key": "주방가전 > 김치냉장고",
+    "url": "https://www.lge.co.kr/kimchi-refrigerators",
+    "status": "done"
+  },
+  {
+    "대분류": "주방가전",
+    "카테고리": "와인셀러",
+    "key": "주방가전 > 와인셀러",
+    "url": "https://www.lge.co.kr/winecellar",
+    "status": "pending"
+  },
+  {
+    "대분류": "주방가전",
+    "카테고리": "전기레인지",
+    "key": "주방가전 > 전기레인지",
+    "url": "https://www.lge.co.kr/electric-ranges",
+    "status": "pending"
+  },
+  {
+    "대분류": "주방가전",
+    "카테고리": "식기세척기",
+    "key": "주방가전 > 식기세척기",
+    "url": "https://www.lge.co.kr/dishwashers",
+    "status": "pending"
+  },
+  {
+    "대분류": "주방가전",
+    "카테고리": "광파오븐/전자레인지",
+    "key": "주방가전 > 광파오븐/전자레인지",
+    "url": "https://www.lge.co.kr/microwaves-and-ovens",
+    "status": "pending"
+  },
+  {
+    "대분류": "주방가전",
+    "카테고리": "정수기",
+    "key": "주방가전 > 정수기",
+    "url": "https://www.lge.co.kr/water-purifiers",
+    "status": "pending"
+  },
+  {
+    "대분류": "주방가전",
+    "카테고리": "맥주제조기",
+    "key": "주방가전 > 맥주제조기",
+    "url": "https://www.lge.co.kr/lg-homebrew",
+    "status": "pending"
+  },
+  {
+    "대분류": "주방가전",
+    "카테고리": "텀블러 세척기",
+    "key": "주방가전 > 텀블러 세척기",
+    "url": "https://www.lge.co.kr/tumbler-cleaner",
+    "status": "pending"
+  },
+  {
+    "대분류": "생활가전",
+    "카테고리": "워시타워",
+    "key": "생활가전 > 워시타워",
+    "url": "https://www.lge.co.kr/wash-tower",
+    "status": "pending"
+  },
+  {
+    "대분류": "생활가전",
+    "카테고리": "워시콤보",
+    "key": "생활가전 > 워시콤보",
+    "url": "https://www.lge.co.kr/wash-combo",
+    "status": "pending"
+  },
+  {
+    "대분류": "생활가전",
+    "카테고리": "세탁기",
+    "key": "생활가전 > 세탁기",
+    "url": "https://www.lge.co.kr/washing-machines",
+    "status": "done"
+  },
+  {
+    "대분류": "생활가전",
+    "카테고리": "의류건조기",
+    "key": "생활가전 > 의류건조기",
+    "url": "https://www.lge.co.kr/dryers",
+    "status": "done"
+  },
+  {
+    "대분류": "생활가전",
+    "카테고리": "의류관리기",
+    "key": "생활가전 > 의류관리기",
+    "url": "https://www.lge.co.kr/lg-styler",
+    "status": "pending"
+  },
+  {
+    "대분류": "생활가전",
+    "카테고리": "시스템아이어닝",
+    "key": "생활가전 > 시스템아이어닝",
+    "url": "https://www.lge.co.kr/system-ironing",
+    "status": "pending"
+  },
+  {
+    "대분류": "생활가전",
+    "카테고리": "신발관리기",
+    "key": "생활가전 > 신발관리기",
+    "url": "https://www.lge.co.kr/shoe-care",
+    "status": "pending"
+  },
+  {
+    "대분류": "생활가전",
+    "카테고리": "안마의자",
+    "key": "생활가전 > 안마의자",
+    "url": "https://www.lge.co.kr/massage-chairs",
+    "status": "pending"
+  },
+  {
+    "대분류": "생활가전",
+    "카테고리": "청소기",
+    "key": "생활가전 > 청소기",
+    "url": "https://www.lge.co.kr/vacuum-cleaners",
+    "status": "pending"
+  },
+  {
+    "대분류": "생활가전",
+    "카테고리": "식물생활가전",
+    "key": "생활가전 > 식물생활가전",
+    "url": "https://www.lge.co.kr/lg-tiiun",
+    "status": "pending"
+  },
+  {
+    "대분류": "에어컨/에어케어",
+    "카테고리": "에어컨",
+    "key": "에어컨/에어케어 > 에어컨",
+    "url": "https://www.lge.co.kr/air-conditioners",
+    "status": "done"
+  },
+  {
+    "대분류": "에어컨/에어케어",
+    "카테고리": "시스템 에어컨",
+    "key": "에어컨/에어케어 > 시스템 에어컨",
+    "url": "https://www.lge.co.kr/system-air-conditioners",
+    "status": "pending"
+  },
+  {
+    "대분류": "에어컨/에어케어",
+    "카테고리": "공기청정기",
+    "key": "에어컨/에어케어 > 공기청정기",
+    "url": "https://www.lge.co.kr/air-purifier",
+    "status": "pending"
+  },
+  {
+    "대분류": "에어컨/에어케어",
+    "카테고리": "제습기",
+    "key": "에어컨/에어케어 > 제습기",
+    "url": "https://www.lge.co.kr/dehumidifiers",
+    "status": "pending"
+  },
+  {
+    "대분류": "에어컨/에어케어",
+    "카테고리": "선풍기",
+    "key": "에어컨/에어케어 > 선풍기",
+    "url": "https://www.lge.co.kr/fan",
+    "status": "pending"
+  },
+  {
+    "대분류": "에어컨/에어케어",
+    "카테고리": "가습기",
+    "key": "에어컨/에어케어 > 가습기",
+    "url": "https://www.lge.co.kr/humidifiers",
+    "status": "pending"
+  },
+  {
+    "대분류": "에어컨/에어케어",
+    "카테고리": "환기 시스템",
+    "key": "에어컨/에어케어 > 환기 시스템",
+    "url": "https://www.lge.co.kr/ventilation-system",
+    "status": "pending"
+  },
+  {
+    "대분류": "에어컨/에어케어",
+    "카테고리": "바스에어시스템",
+    "key": "에어컨/에어케어 > 바스에어시스템",
+    "url": "https://www.lge.co.kr/bath-air-system",
+    "status": "pending"
+  },
+  {
+    "대분류": "AI Home",
+    "카테고리": "AI Home 제품",
+    "key": "AI Home > AI Home 제품",
+    "url": "https://www.lge.co.kr/home-iot-product",
+    "status": "pending"
+  }
+]
