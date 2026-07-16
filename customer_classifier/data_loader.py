@@ -25,16 +25,12 @@ STANDARD_COLUMNS = ["inquiry_id", "text", "written_at", "product", "data_type"]
 
 PRESET_QNA_SQL = """\
 select distinct
-  t1.intg_mbr_id
-  , t1.rvw_inqu_id as q_id
-  , t2.title as q_title
-  , t1.mak_cntn as q_cntn
+  t1.rvw_inqu_id as q_id
   , coalesce(t2.title,'') || ' ' || coalesce(t1.mak_cntn,'') as q_full_text
-  , t1.mak_dt, t1.mak_dttm
-  , t1.mdl_id, tx.sku, tx.mdl_disp_nm
+  , t1.mak_dt
+  , tx.mdl_disp_nm
   , ty.catg_lvl1_nm, ty.catg_lvl2_nm
   , t3.answer_no as a_id
-  , t1.ansr_dt, t1.ansr_dttm
   , datediff(hour, t1.mak_dttm, t1.ansr_dttm) as qa_t_gap
   , regexp_replace(t3.answer_content, '<[^>]+>', ' ') as full_a_cntn
 from lge_bi_l1.l1vc_prod_rvw_inqu_l t1
