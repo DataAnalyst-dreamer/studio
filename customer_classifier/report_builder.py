@@ -280,6 +280,10 @@ def build_markdown_report(
         out.append("_가치수요로 분류된 문의가 없습니다._")
         out.append("")
 
+    # 6. 구매 여정 분석 (여정 연계 쿼리로 추출한 경우에만)
+    if "journey_stage" in df.columns:
+        out.extend(_journey_section(df))
+
     # 부록
     out.append("---")
     out.append("## 부록: 분석 지침")
@@ -288,6 +292,90 @@ def build_markdown_report(
     out.append("")
 
     return "\n".join(out)
+
+
+# ── 구매 여정 분석 섹션 ─────────────────────────────────────────────────
+
+_PRE_PURCHASE_STAGES = {"검토중(장바구니)", "구매전(→닷컴구매)", "구매전(→타채널구매)", "행동없음(문의만)"}
+
+
+def _journey_section(df: pd.DataFrame) -> list[str]:
+    """journey_stage·구매전환 컬럼이 있을 때 리포트에 붙는 여정 분석 장"""
+    out: list[str] = []
+    out.append("## 6. 구매 여정 분석 — 문의 전/후 고객 행동")
+    out.append("")
+    out.append("문의가 고객 여정의 어느 단계에서 발생했는지와, 문의 후 실제 구매로 "
+               "이어졌는지(전환)를 함께 봅니다. **구매를 막는 Pain Point**를 찾는 핵심 신호입니다.")
+    out.append("")
+
+    # 6-1. 분류 × 여정 단계 교차
+    ct = pd.crosstab(df["journey_stage"], df["분류"])
+    headers = ["여정단계"] + list(ct.columns) + ["합계"]
+    rows = [[idx] + [int(v) for v in row] + [int(row.sum())] for idx, row in ct.iterrows()]
+    out.append("### 6-1. 분류 × 여정 단계")
+    out.append("")
+    out.append(_fmt_table(headers, rows))
+    out.append("")
+    out.append("> **구매후 실패수요**는 배송·설치·품질 등 사후 경험 문제, "
+               "**구매전/검토중 실패수요**는 구매를 직접 가로막는 문제(전환 손실)입니다. "
+               "**행동없음(문의만)** 비중이 큰 세부분류는 문의 단계에서 이탈했을 가능성이 있습니다.")
+    out.append("")
+
+    # 6-2. 구매 전 문의의 전환 분석 (세부분류별)
+    pre = df[df["journey_stage"].isin(_PRE_PURCHASE_STAGES)].copy()
+    if len(pre):
+        _empty = pd.Series(index=pre.index, dtype=float)
+        pre["구매전환"] = pd.to_numeric(pre.get("구매전환", _empty), errors="coerce").fillna(0)
+        pre["_fail"] = (
+            pre["a_fail_yn"].astype(str).eq("fail")
+            if "a_fail_yn" in pre.columns else pd.Series(False, index=pre.index)
+        )
+        qa_gap = pd.to_numeric(pre.get("qa_t_gap", _empty), errors="coerce")
+        ao_gap = pd.to_numeric(pre.get("ao_t_gap", _empty), errors="coerce")
+
+        rows = []
+        for sub, grp in pre.groupby("세부분류"):
+            if len(grp) < 1:
+                continue
+            conv = grp["구매전환"].mean() * 100
+            fail_rate = grp["_fail"].mean() * 100
+            med_qa = qa_gap.loc[grp.index].median()
+            med_ao = ao_gap.loc[grp.index].median()
+            rows.append([
+                sub, len(grp), f"{conv:.1f}%", f"{fail_rate:.1f}%",
+                f"{med_qa:.0f}h" if pd.notna(med_qa) else "-",
+                f"{med_ao:.0f}h" if pd.notna(med_ao) else "-",
+            ])
+        rows.sort(key=lambda r: r[1], reverse=True)
+
+        out.append("### 6-2. 구매 전 문의의 전환 분석 (세부분류별)")
+        out.append("")
+        out.append(_fmt_table(
+            ["세부분류", "건수", "구매전환율", "답변실패율", "응답시간(중앙값)", "답변→주문(중앙값)"],
+            rows,
+        ))
+        out.append("")
+
+        # 6-3. 답변 품질 → 전환 영향
+        n_fail = int(pre["_fail"].sum())
+        n_ok = len(pre) - n_fail
+        if n_fail and n_ok:
+            conv_fail = pre.loc[pre["_fail"], "구매전환"].mean() * 100
+            conv_ok = pre.loc[~pre["_fail"], "구매전환"].mean() * 100
+            out.append("### 6-3. 답변 품질이 전환에 미치는 영향")
+            out.append("")
+            out.append(_fmt_table(
+                ["답변 품질", "건수", "구매전환율"],
+                [["정상 답변", n_ok, f"{conv_ok:.1f}%"],
+                 ["실패 답변(죄송/안내불가 등)", n_fail, f"{conv_fail:.1f}%"]],
+            ))
+            out.append("")
+            out.append("> 실패 답변의 전환율이 정상 답변보다 낮다면, **답변 커버리지 개선 "
+                       "자체가 매출 과제**입니다. 어떤 질문에 답하지 못했는지 6-2와 대표 "
+                       "인용문을 대조하세요.")
+            out.append("")
+
+    return out
 
 
 # ── Claude 프로젝트용 지침(시스템 프롬프트) 템플릿 ──────────────────────────
@@ -304,6 +392,9 @@ ANALYSIS_GUIDE = """
 3. **개선과제**: 원인에 대응하는 실행 과제와 기대효과·측정 KPI를 제시하세요.
 4. **우선순위**: (빈도 × 평균심각도 × 실현난이도)로 Quick Win / 중기 / 장기로
    구분해 로드맵으로 정리하세요.
+5. **여정 데이터가 있으면**(6장): 구매전/검토중 단계의 실패수요는 '전환 손실'로,
+   구매후 실패수요는 '사후 경험 문제'로 구분해 과제의 기대효과를 다르게 산정하고,
+   답변실패율·전환율 차이를 근거로 활용하세요.
 """
 
 STRATEGY_SYSTEM_PROMPT = """당신은 LGE.COM CS 전략 분석가입니다.

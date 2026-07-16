@@ -995,7 +995,7 @@ with tab_result:
         list(VALUE_SUBCATEGORIES.keys()) +
         ["해당없음"]
     )
-    display_cols   = ["inquiry_id", "data_type", "text", "분류", "세부분류", "세부사유", "확신도", "출처"]
+    display_cols   = ["inquiry_id", "data_type", "text", "분류", "세부분류", "세부사유", "확신도", "출처", "journey_stage", "구매전환"]
     available_cols = [c for c in display_cols if c in filtered.columns]
 
     if len(filtered) > 0:
