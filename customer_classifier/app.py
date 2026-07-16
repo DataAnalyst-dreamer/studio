@@ -13,6 +13,7 @@ import streamlit as st
 import classifier as clf
 import data_loader as dl
 import db_connector as dbc
+import report_builder as rb
 from utils import (
     CATEGORY_LABELS,
     FAILURE_SUBCATEGORIES,
@@ -407,8 +408,9 @@ st.markdown(
     "사내 Ollama 로컬 LLM을 사용하므로 외부 인터넷 없이 동작합니다."
 )
 
-tab_input, tab_classify, tab_result, tab_help = st.tabs(
-    ["📂 1단계: 데이터 입력", "▶ 2단계: 분류 실행", "📊 3단계: 결과·검토", "❓ 도움말"]
+tab_input, tab_classify, tab_result, tab_report, tab_help = st.tabs(
+    ["📂 1단계: 데이터 입력", "▶ 2단계: 분류 실행", "📊 3단계: 결과·검토",
+     "🧭 4단계: 전략 리포트", "❓ 도움말"]
 )
 
 
@@ -534,6 +536,15 @@ with tab_classify:
                 min_value=10, max_value=500, value=50, step=10,
             )
 
+        use_rules = st.checkbox(
+            "⚡ 규칙 사전분류 사용 (명백한 문의는 LLM 없이 즉시 분류 — 속도 향상)",
+            value=True,
+            help="배송지연·환불오류·시스템오류·파손·호환성 등 아주 명확한 표현은 "
+                 "규칙으로 바로 분류해 LLM 호출량을 줄입니다. 사양이 낮은 PC에서 특히 유용합니다. "
+                 "결과의 '출처' 열에서 규칙/LLM을 구분할 수 있습니다.",
+        )
+        st.session_state["use_rules"] = use_rules
+
         st.markdown("---")
 
         # ── 진단 도구 ──
@@ -627,7 +638,10 @@ with tab_classify:
             status_text  = st.empty()
             results = []
             for i, row in sample_df.iterrows():
-                result = clf.classify_one(row["text"], model)
+                result = clf.classify_one(
+                    row["text"], model,
+                    use_rules=st.session_state.get("use_rules", True),
+                )
                 results.append(result)
                 pct = (i + 1) / len(sample_df)
                 progress_bar.progress(pct, text=f"샘플 분류 중... {i+1}/{len(sample_df)}")
@@ -734,6 +748,7 @@ with tab_classify:
                 stop_flag=st.session_state["stop_flag"],
                 checkpoint_callback=on_checkpoint,
                 checkpoint_interval=int(checkpoint_interval),
+                use_rules=use_rules,
             )
 
             result_records = pd.DataFrame(raw_results)
@@ -980,7 +995,7 @@ with tab_result:
         list(VALUE_SUBCATEGORIES.keys()) +
         ["해당없음"]
     )
-    display_cols   = ["inquiry_id", "data_type", "text", "분류", "세부분류", "세부사유", "확신도"]
+    display_cols   = ["inquiry_id", "data_type", "text", "분류", "세부분류", "세부사유", "확신도", "출처"]
     available_cols = [c for c in display_cols if c in filtered.columns]
 
     if len(filtered) > 0:
@@ -994,6 +1009,7 @@ with tab_result:
                 "inquiry_id": st.column_config.TextColumn("ID", width="small"),
                 "data_type":  st.column_config.TextColumn("유형", width="small"),
                 "세부사유":   st.column_config.TextColumn("세부사유", width="medium"),
+                "출처":       st.column_config.TextColumn("출처", width="small", disabled=True),
             },
             use_container_width=True,
             num_rows="fixed",
@@ -1030,7 +1046,132 @@ with tab_result:
 
 
 # ══════════════════════════════════════════════
-# 탭 4 — 도움말
+# 탭 4 — 전략 리포트 (Claude 프로젝트 연계)
+# ══════════════════════════════════════════════
+with tab_report:
+    result_df = st.session_state.get("result_df")
+
+    if result_df is None:
+        st.info("2단계에서 분류를 먼저 실행한 뒤, 3단계에서 결과를 검토하고 이 탭으로 오세요.")
+        st.stop()
+
+    st.markdown('<div class="section-title">🧭 전략 추출용 리포트 생성</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="info-box">'
+        "로컬 분류 결과를 <b>개인정보가 마스킹된 집계 리포트</b>로 만들어, "
+        "<b>Claude 프로젝트</b>(또는 사내 승인 LLM)에 올려 Pain Point·개선과제·전략을 "
+        "도출할 수 있습니다.<br><br>"
+        "원문 수천 건을 통째로 올리지 않고 <b>집계 + 대표 인용문</b>만 담으므로, "
+        "외부로 나가는 데이터 양과 민감도가 최소화됩니다. "
+        "각 인용문에는 추적용 <code>[ID]</code>가 붙어 근거를 되짚을 수 있습니다."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    # 분류 대상만 (실패/가치) — 분류실패·판단보류는 리포트에서 제외 옵션
+    valid_mask = result_df["분류"].isin(["실패수요", "가치수요", "기타", "판단보류"])
+    n_valid = int(valid_mask.sum())
+    n_fail  = int((result_df["분류"] == "분류실패").sum())
+
+    col_o1, col_o2 = st.columns(2)
+    with col_o1:
+        quotes_per_sub = st.slider(
+            "세부분류별 대표 인용문 수",
+            min_value=3, max_value=15, value=8, step=1,
+            help="많을수록 근거가 풍부하지만 리포트가 길어집니다.",
+        )
+    with col_o2:
+        period_label = st.text_input(
+            "리포트 기간 표기 (선택)",
+            value="",
+            placeholder="예: 2025-01 ~ 2025-06",
+        )
+
+    if n_fail > 0:
+        st.caption(f"※ 분류실패 {n_fail:,}건은 리포트에서 자동 제외됩니다. (유효 {n_valid:,}건 대상)")
+
+    # 출처(규칙/LLM) 요약
+    if "출처" in result_df.columns:
+        src_counts = result_df["출처"].value_counts().to_dict()
+        rule_n = src_counts.get("규칙", 0)
+        if rule_n:
+            st.caption(
+                f"⚡ 규칙 사전분류 {rule_n:,}건 / "
+                f"LLM {sum(v for k, v in src_counts.items() if k != '규칙'):,}건"
+            )
+
+    if st.button("🧭 리포트 생성", type="primary"):
+        report_df = result_df[valid_mask].copy()
+        with st.spinner("집계 및 개인정보 마스킹 중..."):
+            md = rb.build_markdown_report(
+                report_df,
+                period_label=period_label.strip(),
+                quotes_per_sub=int(quotes_per_sub),
+            )
+            # 마스킹 통계 (안내용)
+            from pii import mask_series
+            _, masked_count = mask_series(report_df["text"].tolist())
+        st.session_state["report_md"] = md
+        st.session_state["report_masked_count"] = masked_count
+        st.success("리포트가 생성됐습니다. 아래에서 미리보기·다운로드하세요.")
+
+    report_md = st.session_state.get("report_md")
+    if report_md:
+        masked_count = st.session_state.get("report_masked_count", 0)
+        if masked_count:
+            st.markdown(
+                f'<span class="status-ok">● 개인정보 {masked_count:,}건 마스킹 완료</span> '
+                "(전화·이메일·주소·카드·주문번호·이름 등)",
+                unsafe_allow_html=True,
+            )
+        st.warning(
+            "⚠️ 규칙 기반 마스킹은 완벽하지 않습니다. 외부 반출 전 미리보기를 훑어보고, "
+            "사내 데이터 반출 정책(외부 AI 서비스 업로드 허용 여부)을 반드시 확인하세요."
+        )
+
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            st.download_button(
+                "📥 리포트 다운로드 (.md)",
+                data=report_md.encode("utf-8"),
+                file_name=f"전략리포트_{now_str()}.md",
+                mime="text/markdown",
+                type="primary",
+                use_container_width=True,
+            )
+        with col_dl2:
+            st.download_button(
+                "📥 Claude 지침 다운로드 (.txt)",
+                data=rb.build_strategy_prompt().encode("utf-8"),
+                file_name="claude_전략분석_지침.txt",
+                mime="text/plain",
+                use_container_width=True,
+            )
+
+        with st.expander("📄 리포트 미리보기", expanded=True):
+            st.markdown(report_md)
+
+        st.markdown('<div class="section-title">🔗 Claude 프로젝트 사용 방법</div>', unsafe_allow_html=True)
+        st.markdown(
+            """
+1. **Claude 프로젝트 생성** — claude.ai에서 새 프로젝트를 만듭니다.
+2. **지식 추가** — 위 `.md` 리포트 파일을 프로젝트 지식(Project knowledge)에 업로드합니다.
+3. **커스텀 인스트럭션 설정** — `claude_전략분석_지침.txt` 내용을 프로젝트
+   커스텀 인스트럭션에 붙여넣습니다.
+4. **단계적 대화** — 한 번에 다 시키지 말고 순서대로 진행하세요:
+   `① Pain Point 도출` → (검토·수정) → `② 근본원인` → `③ 개선과제` → `④ 우선순위·로드맵`.
+   각 단계 결과를 확인하고 넘어가면 품질이 크게 올라갑니다.
+
+> 사내 정책상 외부 AI 업로드가 어렵다면, 이 리포트를 사내 승인된 LLM 엔드포인트나
+> 오프라인 검토 자료로 그대로 활용할 수 있습니다.
+"""
+        )
+        with st.expander("📋 Claude 지침 미리보기"):
+            st.code(rb.build_strategy_prompt(), language="text")
+
+
+# ══════════════════════════════════════════════
+# 탭 5 — 도움말
 # ══════════════════════════════════════════════
 with tab_help:
     st.markdown("## ❓ 도움말 및 오류 해결")
@@ -1140,6 +1281,37 @@ streamlit run app.py
 - "예약날짜가 안떠서 구매를 못해요" → 주문 시스템 **실패수요(시스템오류)**
 
 > 결과가 애매하면 3단계 **검토 및 수정** 화면에서 사람이 직접 바로잡을 수 있습니다.
+"""
+        )
+
+    with st.expander("🧭 전략 리포트 & Claude 프로젝트 연계"):
+        st.markdown(
+            """
+사양이 낮은 PC에서는 로컬 소형 모델로 **분류까지만** 처리하고, Pain Point 도출·전략
+수립 같은 **무거운 추론은 Claude 프로젝트**(또는 사내 승인 LLM)에 맡기는 구성이 효율적입니다.
+
+**4단계: 전략 리포트** 탭에서 다음을 자동 생성합니다.
+- **집계 리포트(.md)** — 수요 구조, 실패수요 세부분류 순위·심각도, 대표 인용문,
+  상품 × 실패 교차표, 월별 추이, 가치수요 기회 요약
+- **개인정보 마스킹** — 전화·이메일·주소·카드·주문번호·이름 등을 가림
+- **인용문 [ID]** — 각 대표 인용문에 원본 추적용 식별자 부여
+- **Claude 지침(.txt)** — 프로젝트 커스텀 인스트럭션에 붙여넣을 분석 지침
+
+**사용 순서**
+1. claude.ai에서 새 프로젝트 생성
+2. 리포트 `.md`를 프로젝트 지식에 업로드
+3. 지침 `.txt` 내용을 커스텀 인스트럭션에 입력
+4. `① Pain Point → ② 근본원인 → ③ 개선과제 → ④ 우선순위` 순서로 단계적 대화
+
+> ⚠️ 규칙 기반 마스킹은 완벽하지 않습니다. 외부 반출 전 리포트를 확인하고,
+> 사내 데이터 반출 정책을 반드시 준수하세요. 외부 업로드가 어렵다면 사내 승인
+> LLM이나 오프라인 검토 자료로 그대로 활용할 수 있습니다.
+
+**⚡ 규칙 사전분류란?**
+배송지연·환불오류·시스템오류·파손·호환성처럼 표현이 아주 명확한 문의는 LLM을
+호출하지 않고 규칙으로 즉시 분류합니다. 저사양 PC에서 처리 시간을 크게 줄일 수
+있으며, 결과의 **출처** 열에서 `규칙`/`LLM`을 구분할 수 있습니다. 애매한 문의는
+규칙에 넣지 않고 LLM으로 넘겨 정확도를 유지합니다.
 """
         )
 
