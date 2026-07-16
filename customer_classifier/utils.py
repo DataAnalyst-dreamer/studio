@@ -111,9 +111,13 @@ def to_excel_bytes(df: pd.DataFrame) -> bytes:
         workbook = writer.book
         worksheet = writer.sheets["분류결과"]
 
-        # 열 너비 자동 조정
+        # 열 너비 자동 조정 (None/NaN 섞인 컬럼도 안전하게)
         for i, col in enumerate(df.columns):
-            max_len = max(df[col].astype(str).map(len).max(), len(str(col))) + 4
+            try:
+                content_max = int(df[col].map(lambda v: len(str(v)) if v is not None else 0).max())
+            except (TypeError, ValueError):
+                content_max = 10
+            max_len = max(content_max, len(str(col))) + 4
             worksheet.set_column(i, i, min(max_len, 60))
 
         # 분류 컬럼 조건부 색상
