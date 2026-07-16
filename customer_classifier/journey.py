@@ -27,6 +27,17 @@ STAGE_PRIORITY = [
     ("just_ask",    "행동없음(문의만)"),
 ]
 
+# 여정 서사 순서 (표·차트 표시용) — 판정 우선순위(STAGE_PRIORITY)와 다르다
+STAGE_ORDER = [
+    "구매전(→닷컴구매)",
+    "구매전(→타채널구매)",
+    "검토중(장바구니)",
+    "구매후(닷컴)",
+    "구매후(타채널)",
+    "행동없음(문의만)",
+    "기타",
+]
+
 # 구매 전 단계(전환 분석 대상) 라벨
 PRE_PURCHASE_STAGES = {"검토중(장바구니)", "구매전(→닷컴구매)", "구매전(→타채널구매)", "행동없음(문의만)"}
 
@@ -93,8 +104,8 @@ def prepare_journey_dataframe(df_raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def journey_summary(df: pd.DataFrame) -> pd.DataFrame:
-    """journey_stage 별 건수·비율 요약 (우선순위 순서 유지)"""
-    order = [label for _, label in STAGE_PRIORITY] + ["기타"]
+    """journey_stage 별 건수·비율 요약 (여정 서사 순서)"""
+    order = STAGE_ORDER
     counts = df["journey_stage"].value_counts()
     rows = [
         {"여정단계": lb, "건수": int(counts[lb]),

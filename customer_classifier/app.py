@@ -1066,8 +1066,15 @@ with tab_result:
             j_col1, j_col2 = st.columns(2)
 
             with j_col1:
+                import journey as jn
+
                 js = result_df["journey_stage"].value_counts().reset_index()
                 js.columns = ["여정단계", "건수"]
+                # 여정 서사 순서(구매전→검토중→구매후→행동없음)로 고정 정렬
+                js["_ord"] = js["여정단계"].map(
+                    {s: i for i, s in enumerate(jn.STAGE_ORDER)}
+                ).fillna(len(jn.STAGE_ORDER))
+                js = js.sort_values("_ord").drop(columns="_ord").reset_index(drop=True)
                 fail_share = (
                     result_df.assign(_f=(result_df["분류"] == "실패수요").astype(int))
                     .groupby("journey_stage")["_f"].mean().mul(100).round(1)

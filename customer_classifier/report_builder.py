@@ -308,8 +308,12 @@ def _journey_section(df: pd.DataFrame) -> list[str]:
                "이어졌는지(전환)를 함께 봅니다. **구매를 막는 Pain Point**를 찾는 핵심 신호입니다.")
     out.append("")
 
-    # 6-1. 분류 × 여정 단계 교차
+    # 6-1. 분류 × 여정 단계 교차 (여정 서사 순서로 정렬)
+    from journey import STAGE_ORDER
+
     ct = pd.crosstab(df["journey_stage"], df["분류"])
+    ct = ct.reindex([s for s in STAGE_ORDER if s in ct.index]
+                    + [s for s in ct.index if s not in STAGE_ORDER])
     headers = ["여정단계"] + list(ct.columns) + ["합계"]
     rows = [[idx] + [int(v) for v in row] + [int(row.sum())] for idx, row in ct.iterrows()]
     out.append("### 6-1. 분류 × 여정 단계")
