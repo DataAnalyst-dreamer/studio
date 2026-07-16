@@ -40,7 +40,7 @@ select distinct
 from lge_bi_l1.l1vc_prod_rvw_inqu_l t1
   inner join lge_bi_l0.l0ec_mkt_model_qna_q t2 on t1.rvw_inqu_id = t2.question_no
   left join lge_bi_l0.l0ec_mkt_model_qna_a t3 on t1.rvw_inqu_id = t3.question_no and t3.use_flag = 'Y'
-  inner join lge_bi_l1.l1pr_prod_catg_m tx on t1.mdl_id = tx.mdl_id and tx.prod_dv_cd_nm = '일반제품'
+  inner join lge_bi_l1.l1pr_prod_catg_m tx on t1.mdl_id = tx.mdl_id and tx.prod_dv_cd_nm = '{prod_dv}'
   left join lge_bi_l1.l1pr_catg_m ty on tx.catg_id = ty.catg_id
 where 1=1
   and t1.mak_dt between '{date_from}' and '{date_to}'
@@ -57,7 +57,7 @@ select distinct
   , t1.mdl_id, tx.sku, tx.mdl_disp_nm
   , ty.catg_lvl1_nm, ty.catg_lvl2_nm
 from lge_bi_l1.l1vc_prod_rvw_inqu_l t1
-  inner join lge_bi_l1.l1pr_prod_catg_m tx on t1.mdl_id = tx.mdl_id and tx.prod_dv_cd_nm = '일반제품'
+  inner join lge_bi_l1.l1pr_prod_catg_m tx on t1.mdl_id = tx.mdl_id and tx.prod_dv_cd_nm = '{prod_dv}'
   left join lge_bi_l1.l1pr_catg_m ty on tx.catg_id = ty.catg_id
 where 1=1
   and t1.mak_dt between '{date_from}' and '{date_to}'
@@ -173,6 +173,15 @@ def load_from_db(conn, data_type: str) -> Optional[pd.DataFrame]:
             horizontal=True, key="preset_type"
         )
 
+        sale_type = st.radio(
+            "판매 유형", ["일시불", "구독"],
+            horizontal=True, key="preset_sale_type",
+            help="일시불은 일반제품, 구독은 가전 구독(prod_dv_cd_nm)으로 조회합니다.",
+        )
+        # 화면 선택값 → prod_dv_cd_nm 실제 코드값 매핑
+        PROD_DV_MAP = {"일시불": "일반제품", "구독": "가전 구독"}
+        prod_dv = PROD_DV_MAP[sale_type]
+
         col_d1, col_d2 = st.columns(2)
         with col_d1:
             p_from = st.text_input("시작일 (YYYYMMDD)", value="20250101", key="p_from")
@@ -181,7 +190,7 @@ def load_from_db(conn, data_type: str) -> Optional[pd.DataFrame]:
 
         is_qna = preset_type.startswith("Q&A")
         raw_sql = (PRESET_QNA_SQL if is_qna else PRESET_REVIEW_SQL).format(
-            date_from=p_from.strip(), date_to=p_to.strip()
+            date_from=p_from.strip(), date_to=p_to.strip(), prod_dv=prod_dv
         )
         # 분류에 사용할 본문 컬럼 / ID 컬럼 / 날짜 컬럼
         text_col   = "q_full_text" if is_qna else "rvw_cntn"
