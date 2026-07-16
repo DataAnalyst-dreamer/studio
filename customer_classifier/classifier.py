@@ -13,6 +13,20 @@ from utils import safe_json_parse
 
 OLLAMA_BASE_URL = "http://localhost:11434"
 
+# ── 약한 PC / 소형 모델 대응 생성 옵션 ──────────────────────────────────
+# temperature=0  : 분류는 창의성이 필요 없으므로 결정적 출력 → 일관성·재현성 향상
+# num_predict     : 출력은 JSON 한 줄이면 충분 → 길이 제한으로 속도 대폭 향상
+# top_p/top_k     : 후보를 좁혀 헛소리·형식 이탈 감소
+# keep_alive      : 모델을 메모리에 상주시켜 건별 재로딩 오버헤드 제거 (연속 분류 시 핵심)
+GEN_OPTIONS = {
+    "temperature": 0,
+    "num_predict": 256,
+    "top_p": 0.9,
+    "top_k": 20,
+    "repeat_penalty": 1.1,
+}
+KEEP_ALIVE = "10m"
+
 CLASSIFICATION_PROMPT = """\
 당신은 LG전자 온라인몰(LGE.COM)의 고객 문의를 분류하는 CS 전략 분석 전문가입니다.
 아래 [분류할 문장]을 읽고, 반드시 마지막의 JSON 형식으로만 답하세요.
@@ -212,14 +226,32 @@ def _fallback_text_parse(text: str) -> Optional[dict]:
     }
 
 
-def _ollama_generate(model: str, prompt: str, timeout: int = 180) -> str:
+def _ollama_generate(
+    model: str,
+    prompt: str,
+    timeout: int = 180,
+    force_json: bool = True,
+) -> str:
     """
     스트리밍 방식으로 Ollama 텍스트 생성.
     stream=False는 일부 Ollama 버전에서 HTTP 500을 유발하므로 스트리밍 사용.
+
+    force_json=True 이면 Ollama의 구조화 출력(format="json")을 사용해
+    소형 모델에서도 유효한 JSON이 나오도록 강제한다 → 파싱 실패율 감소.
     """
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "stream": True,
+        "options": GEN_OPTIONS,
+        "keep_alive": KEEP_ALIVE,
+    }
+    if force_json:
+        payload["format"] = "json"
+
     resp = requests.post(
         f"{OLLAMA_BASE_URL}/api/generate",
-        json={"model": model, "prompt": prompt, "stream": True},
+        json=payload,
         stream=True,
         timeout=timeout,
     )
@@ -315,8 +347,74 @@ def diagnose_one(text: str, model: str) -> dict:
         return {"http_status": None, "ollama_error": str(e), "raw_response": "", "parsed_json": None, "fallback_parse": None, "final_result": None}
 
 
-def classify_one(text: str, model: str, retries: int = 3) -> dict:
-    """문의 1건 분류. 스트리밍 방식으로 Ollama 호출."""
+# ══════════════════════════════════════════════════════════════════════
+# 규칙 기반 고속 사전분류 (LLM 호출 전 명백한 건을 먼저 처리)
+# ──────────────────────────────────────────────────────────────────────
+# 약한 PC에서 LLM 물량 자체를 줄이기 위한 장치.
+# ★ 오분류를 막기 위해 "거의 확실한" 패턴만 등록한다. 조금이라도 애매하면
+#   규칙에 넣지 말고 LLM으로 넘긴다. (예: '재입고'는 가치수요지만 문맥에 따라
+#   실패로 오해될 수 있어 규칙에서 제외)
+# 각 규칙: (분류, 세부분류, 반드시_포함(list, 각 항목 중 하나라도), 확신도, 사유)
+#   required 는 [group1, group2, ...] 형태로, 모든 group에서 최소 한 단어가
+#   본문에 나타나야 매칭된다 (AND of ORs).
+# ══════════════════════════════════════════════════════════════════════
+
+_RULES: list[tuple] = [
+    # ── 실패수요 ──────────────────────────────────────────────
+    ("실패수요", "배송지연",
+     [["배송", "택배", "발송", "출고"], ["늦", "언제 와", "언제와", "안 와", "안와",
+      "며칠째", "아직도", "지연", "안 옵니", "안옵니", "감감"]], 82,
+     "배송 지연 관련 표현 — 규칙 매칭"),
+    ("실패수요", "결제/환불오류",
+     [["환불", "결제", "취소"], ["안 되", "안돼", "안됩", "실패", "오류", "중복",
+      "지연", "언제 되", "안 해", "누락"]], 82,
+     "결제·환불 오류 표현 — 규칙 매칭"),
+    ("실패수요", "시스템오류",
+     [["앱", "사이트", "홈페이지", "웹", "예약", "등록", "로그인", "주문"],
+      ["오류", "에러", "안 떠", "안떠", "안 뜨", "안뜨", "먹통", "안 되", "안돼",
+       "튕겨", "멈춰", "버벅"]], 80,
+     "시스템 오류 표현 — 규칙 매칭"),
+    ("실패수요", "오배송/파손",
+     [["파손", "깨져", "깨진", "불량", "오배송", "다른 제품", "다른 상품",
+       "찌그러", "흠집"]], 84,
+     "오배송·파손 표현 — 규칙 매칭"),
+    # ── 가치수요 ──────────────────────────────────────────────
+    ("가치수요", "스펙/호환성",
+     [["호환"], ["되나", "가능", "맞나", "여부", "?", "될까", "인가요"]], 82,
+     "호환성 확인 문의 — 규칙 매칭"),
+]
+
+
+def rule_classify(text: str) -> Optional[dict]:
+    """
+    본문을 규칙으로 사전 분류. 매칭되면 결과 dict, 아니면 None.
+    매우 보수적으로 매칭하며, 결과에는 출처='규칙' 을 표기해 검토 시 구분 가능.
+    """
+    t = text.strip()
+    if len(t) < 4:
+        return None
+    low = t.lower()
+
+    for cat, subcat, groups, conf, reason in _RULES:
+        if all(any(w.lower() in low for w in group) for group in groups):
+            return {
+                "분류":    cat,
+                "세부분류": subcat,
+                "세부사유": (t[:60] + "…") if len(t) > 60 else t,
+                "근거":    reason,
+                "확신도":  conf,
+                "출처":    "규칙",
+            }
+    return None
+
+
+def classify_one(text: str, model: str, retries: int = 3, use_rules: bool = True) -> dict:
+    """문의 1건 분류. 규칙 우선 → 미매칭 시 Ollama LLM 호출."""
+    if use_rules:
+        ruled = rule_classify(text)
+        if ruled is not None:
+            return ruled
+
     prompt = CLASSIFICATION_PROMPT + text.strip()
 
     last_error = ""
@@ -338,6 +436,7 @@ def classify_one(text: str, model: str, retries: int = 3) -> dict:
                 if category not in VALID_CATEGORIES:
                     fallback = _fallback_text_parse(raw)
                     if fallback:
+                        fallback["출처"] = "LLM(복원)"
                         return fallback
                     category = "판단보류"
                     parsed["세부사유"] = str(parsed.get("세부사유", "")) + " [카테고리 수정됨]"
@@ -365,11 +464,13 @@ def classify_one(text: str, model: str, retries: int = 3) -> dict:
                     "세부사유": str(parsed.get("세부사유", ""))[:200],
                     "근거":    str(parsed.get("근거", ""))[:300],
                     "확신도":  confidence,
+                    "출처":    "LLM",
                 }
 
             # 2차: 텍스트 직접 탐색 (fallback)
             fallback = _fallback_text_parse(raw)
             if fallback:
+                fallback["출처"] = "LLM(복원)"
                 return fallback
 
             last_error = f"JSON 파싱 실패 (응답: {raw[:120]})"
@@ -396,6 +497,7 @@ def classify_one(text: str, model: str, retries: int = 3) -> dict:
         "세부사유": last_error[:200],
         "근거":    "재시도 후에도 유효한 응답을 받지 못했습니다.",
         "확신도":  0,
+        "출처":    "실패",
     }
 
 
@@ -406,6 +508,7 @@ def classify_batch(
     stop_flag: Optional[list] = None,
     checkpoint_callback=None,
     checkpoint_interval: int = 50,
+    use_rules: bool = True,
 ) -> list[dict]:
     results = []
     total   = len(texts)
@@ -414,7 +517,7 @@ def classify_batch(
         if stop_flag and stop_flag[0]:
             break
 
-        result = classify_one(text, model)
+        result = classify_one(text, model, use_rules=use_rules)
         results.append(result)
 
         if progress_callback:
